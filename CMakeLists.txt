@@ -105,10 +105,30 @@ IF(NOT UNIX)
             src/bzip2/randtable.c
     )
     ADD_LIBRARY(LIB_BZIP STATIC ${SRC_BZIP})
-    TARGET_LINK_LIBRARIES( ${PACKAGE_NAME} LIB_BZIP )
 
-    INCLUDE_DIRECTORIES(${PLUGIN_SOURCE_DIR}/src/zlib-1.2.3)
     INCLUDE_DIRECTORIES(${PLUGIN_SOURCE_DIR}/src/bzip2)
+
+    SET(SRC_ZLIB
+			src/zlib-1.2.11/adler32.c
+			src/zlib-1.2.11/compress.c
+			src/zlib-1.2.11/crc32.c
+			src/zlib-1.2.11/deflate.c
+			src/zlib-1.2.11/gzclose.c
+			src/zlib-1.2.11/gzlib.c
+			src/zlib-1.2.11/gzread.c
+            src/zlib-1.2.11/gzwrite.c
+			src/zlib-1.2.11/infback.c
+			src/zlib-1.2.11/inflate.c
+			src/zlib-1.2.11/inftrees.c
+			src/zlib-1.2.11/inffast.c
+			src/zlib-1.2.11/trees.c
+			src/zlib-1.2.11/uncompr.c
+			src/zlib-1.2.11/zutil.c
+	)
+    ADD_LIBRARY(LIB_ZLIB STATIC ${SRC_ZLIB})
+    INCLUDE_DIRECTORIES(${PLUGIN_SOURCE_DIR}/src/zlib-1.2.11)
+
+    TARGET_LINK_LIBRARIES( ${PACKAGE_NAME} LIB_BZIP LIB_ZLIB)
 ENDIF(NOT UNIX)
 
 #IF(NOT UNIX)
