@@ -99,6 +99,9 @@ bool RouteMapOverlay::Start(wxString &error)
         return false;
     }
 
+    //if(configuration.OptimizeTacking)
+    //m_Configuration.boat.OptimizeTacking();
+
     if(!configuration.UseGrib &&
        configuration.ClimatologyType <= RouteMapConfiguration::CURRENTS_ONLY) {
         error = _("Configuration does not allow grib or climatology wind data");
@@ -966,8 +969,6 @@ std::list<PlotData> &RouteMapOverlay::GetPlotData(bool cursor_route)
         RouteMapConfiguration configuration = GetConfiguration();
         Lock();
         IsoChronList::iterator it = origin.begin(), itp;
-
-
         
         for(Position *p = pos; p; p=p->parent)
             if(++it == origin.end()) {
@@ -988,8 +989,8 @@ std::list<PlotData> &RouteMapOverlay::GetPlotData(bool cursor_route)
             data.time = (*it)->time;
 
             data.lat = pos->lat, data.lon = pos->lon;
-            pos->GetPlotData(next, dt, configuration, data);
-            plotdata.push_front(data);
+            if(pos->GetPlotData(next, dt, configuration, data))
+                plotdata.push_front(data);
 
             it = itp;
             next = pos;
@@ -1037,6 +1038,10 @@ double RouteMapOverlay::RouteInfo(enum RouteInfoType type, bool cursor_route)
         case MAXWIND:
             if(total < it->VW)
                 total = it->VW;
+            break;
+        case MAXWINDGUST:
+            if(total < it->VW_GUST)
+                total = it->VW_GUST;
             break;
         case AVGCURRENT:
             total += it->VC;
@@ -1164,7 +1169,7 @@ void RouteMapOverlay::UpdateDestination()
     bool done = ReachedDestination();
     if(done) {
         delete destination_position;
-
+        destination_position = 0;
         Lock();
         /* this doesn't happen often, so can be slow.. for each position in the last
            isochron, we try to propagate to the destination */
