@@ -1,4 +1,4 @@
-///////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////
 // C++ code generated with wxFormBuilder (version Dec  3 2017)
 // http://www.wxformbuilder.org/
 //
@@ -3277,7 +3277,7 @@ EditPolarDialogBase::EditPolarDialogBase( wxWindow* parent, wxWindowID id, const
 	this->Centre( wxBOTH );
 	
 	// Connect Events
-	m_gPolar->Connect( wxEVT_GRID_CELL_CHANGE, wxGridEventHandler( EditPolarDialogBase::OnPolarGridChanged ), NULL, this );
+	m_gPolar->Connect( wxEVT_GRID_CELL_CHANGED, wxGridEventHandler( EditPolarDialogBase::OnPolarGridChanged ), NULL, this );
 	m_tTrueWindAngle->Connect( wxEVT_COMMAND_TEXT_ENTER, wxCommandEventHandler( EditPolarDialogBase::d ), NULL, this );
 	m_bAddTrueWindAngle->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( EditPolarDialogBase::OnAddTrueWindAngle ), NULL, this );
 	m_bRemoveTrueWindAngle->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( EditPolarDialogBase::OnRemoveTrueWindAngle ), NULL, this );
@@ -3301,7 +3301,7 @@ EditPolarDialogBase::EditPolarDialogBase( wxWindow* parent, wxWindowID id, const
 EditPolarDialogBase::~EditPolarDialogBase()
 {
 	// Disconnect Events
-	m_gPolar->Disconnect( wxEVT_GRID_CELL_CHANGE, wxGridEventHandler( EditPolarDialogBase::OnPolarGridChanged ), NULL, this );
+	m_gPolar->Disconnect( wxEVT_GRID_CELL_CHANGED, wxGridEventHandler( EditPolarDialogBase::OnPolarGridChanged ), NULL, this );
 	m_tTrueWindAngle->Disconnect( wxEVT_COMMAND_TEXT_ENTER, wxCommandEventHandler( EditPolarDialogBase::d ), NULL, this );
 	m_bAddTrueWindAngle->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( EditPolarDialogBase::OnAddTrueWindAngle ), NULL, this );
 	m_bRemoveTrueWindAngle->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( EditPolarDialogBase::OnRemoveTrueWindAngle ), NULL, this );
