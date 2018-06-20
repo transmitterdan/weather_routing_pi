@@ -70,9 +70,9 @@
 
 #include <stdlib.h>
 #include <math.h>
+#include <map>
 
 #include "ocpn_plugin.h"
-#include "GribRecordSet.h"
 
 #include "Utilities.h"
 #include "Boat.h"
@@ -86,8 +86,9 @@
 #define distance(X, Y) sqrt((X)*(X) + (Y)*(Y)) // much faster than hypot
 
 
-static double Swell(GribRecordSet *grib, double lat, double lon)
+static double Swell(RouteMapConfiguration &configuration, double lat, double lon)
 {
+    WR_GribRecordSet *grib = configuration.grib;
     if(!grib)
         return 0;
 
@@ -104,8 +105,9 @@ static double Swell(GribRecordSet *grib, double lat, double lon)
     return height;
 }
 
-static double Gust(GribRecordSet *grib, double lat, double lon)
+static double Gust(RouteMapConfiguration &configuration, double lat, double lon)
 {
+    WR_GribRecordSet *grib = configuration.grib;
     if(!grib)
         return NAN;
 
@@ -121,9 +123,10 @@ static double Gust(GribRecordSet *grib, double lat, double lon)
 }
 
 
-static inline bool GribWind(GribRecordSet *grib, double lat, double lon,
+static bool GribWind(RouteMapConfiguration &configuration, double lat, double lon,
                             double &WG, double &VWG)
 {
+    WR_GribRecordSet *grib = configuration.grib;
     if(!grib)
         return false;
 
@@ -138,9 +141,10 @@ static inline bool GribWind(GribRecordSet *grib, double lat, double lon,
 
 enum {WIND, CURRENT};
 
-static inline bool GribCurrent(GribRecordSet *grib, double lat, double lon,
+static bool GribCurrent(RouteMapConfiguration &configuration, double lat, double lon,
                                double &C, double &VC)
 {
+    WR_GribRecordSet *grib = configuration.grib;
     if(!grib)
         return false;
 
@@ -161,8 +165,7 @@ static inline bool Current(RouteMapConfiguration &configuration,
                            double lat, double lon,
                            double &C, double &VC, int &data_mask)
 {
-    if(!configuration.grib_is_data_deficient &&
-       GribCurrent(configuration.grib, lat, lon, C, VC)) {
+    if(!configuration.grib_is_data_deficient && GribCurrent(configuration, lat, lon, C, VC)) {
         data_mask |= Position::GRIB_CURRENT;
         return true;
     }
@@ -179,8 +182,7 @@ static inline bool Current(RouteMapConfiguration &configuration,
     // unlike wind, we don't use current data from a different location
     // so only current data from a different time is allowed
     if(configuration.AllowDataDeficient &&
-       configuration.grib_is_data_deficient &&
-       GribCurrent(grib, lat, lon, C, VC)) {
+       configuration.grib_is_data_deficient && GribCurrent(configuration, lat, lon, C, VC)) {
         data_mask |= Position::GRIB_CURRENT | Position::DATA_DEFICIENT_CURRENT;
         return true;
     }
@@ -246,7 +248,7 @@ static void OverGround(double B, double VB, double C, double VC, double &BG, dou
    (y-y1) * (x2-x1) = (y2-y1) * (x-x1)
    (y-y3) * (x4-x3) = (y4-y3) * (x-x3)
 */
-inline int TestIntersectionXY(double x1, double y1, double x2, double y2,
+static inline int TestIntersectionXY(double x1, double y1, double x2, double y2,
                               double x3, double y3, double x4, double y4)
 {
     double ax = x2 - x1, ay = y2 - y1;
@@ -420,8 +422,7 @@ static inline bool ReadWindAndCurrents(RouteMapConfiguration &configuration, Pos
         C = VC = 0;
 
     for(;;) {
-        if(!configuration.grib_is_data_deficient && configuration.grib &&
-           GribWind(configuration.grib, p->lat, p->lon, WG, VWG)) {
+        if(!configuration.grib_is_data_deficient && GribWind(configuration, p->lat, p->lon, WG, VWG)) {
             data_mask |= Position::GRIB_WIND;
             break;
         }
@@ -483,8 +484,7 @@ static inline bool ReadWindAndCurrents(RouteMapConfiguration &configuration, Pos
             return false;
 
         /* try deficient grib if climatology failed */
-        if(configuration.grib_is_data_deficient && configuration.grib &&
-           GribWind(configuration.grib, p->lat, p->lon, WG, VWG)) {
+        if(configuration.grib_is_data_deficient && GribWind(configuration, p->lat, p->lon, WG, VWG)) {
             data_mask |= Position::GRIB_WIND | Position::DATA_DEFICIENT_WIND;
             break;
         }
@@ -502,8 +502,8 @@ static inline bool ReadWindAndCurrents(RouteMapConfiguration &configuration, Pos
 /* get data from a position for plotting */
 bool Position::GetPlotData(Position *next, double dt, RouteMapConfiguration &configuration, PlotData &data)
 {
-    data.WVHT = Swell(configuration.grib, lat, lon);
-    data.VW_GUST = Gust(configuration.grib, lat, lon);
+    data.WVHT = Swell(configuration, lat, lon);
+    data.VW_GUST = Gust(configuration, lat, lon);
     data.tacks = tacks;
 
     climatology_wind_atlas atlas;
@@ -574,7 +574,7 @@ static inline bool ComputeBoatSpeed
         VB = polar.Speed(H, VW, true, configuration.OptimizeTacking);
 
     /* failed to determine speed.. */
-    if(isnan(B) || isnan(VB)) {
+    if(wxIsNaN(B) || wxIsNaN(VB)) {
         // when does this hit??
         printf("polar failed bad! %f %f %f %f\n", W, VW, B, VB);
         configuration.polar_failed = true;
@@ -584,16 +584,13 @@ static inline bool ComputeBoatSpeed
     /* compound boatspeed with current */
     OverGround(B, VB, C, VC, BG, VBG);
 
-    if(!VBG) // no speed
-        return false;
-
     /* distance over ground */
     dist = VBG * timeseconds / 3600.0;
     return true;
 }
 
 bool rk_step(Position *p, double timeseconds, double BG, double dist, double H,
-             RouteMapConfiguration &configuration, GribRecordSet *grib,
+             RouteMapConfiguration &configuration, WR_GribRecordSet *grib,
              const wxDateTime &time, int newpolar,
              double &rk_BG, double &rk_dist, int &data_mask)
 {
@@ -641,7 +638,7 @@ bool Position::Propagate(IsoRouteList &routelist, RouteMapConfiguration &configu
     /* through all angles relative to wind */
     int count = 0;
 
-    double S = Swell(configuration.grib, lat, lon);
+    double S = Swell(configuration, lat, lon);
     if(S > configuration.MaxSwellMeters)
         return false;
 
@@ -669,7 +666,7 @@ bool Position::Propagate(IsoRouteList &routelist, RouteMapConfiguration &configu
             return false;
     }
 
-    double timeseconds = configuration.dt;
+    double timeseconds = configuration.DeltaTime;
     double dist;
 
     bool first_avoid = true;
@@ -690,7 +687,7 @@ bool Position::Propagate(IsoRouteList &routelist, RouteMapConfiguration &configu
         B = W + H; /* rotated relative to true wind */
 
         /* test to avoid extra computations related to backtracking */
-        if(!isnan(bearing1)) {
+        if(!wxIsNaN(bearing1)) {
             double bearing3 = heading_resolve(B);
             if((bearing1 > bearing2 && bearing3 > bearing2 && bearing3 < bearing1) ||
                (bearing1 < bearing2 && (bearing3 > bearing2 || bearing3 < bearing1))) {
@@ -727,7 +724,7 @@ bool Position::Propagate(IsoRouteList &routelist, RouteMapConfiguration &configu
             tacked = true;
         }
 
-        double dlat, dlon, nrdlon;
+        double dlat, dlon;
         if(configuration.Integrator == RouteMapConfiguration::RUNGE_KUTTA) {
             double k2_dist, k2_BG, k3_dist, k3_BG, k4_dist, k4_BG;
             // a lot more experimentation is needed here, maybe use grib for the right time??
@@ -754,7 +751,6 @@ bool Position::Propagate(IsoRouteList &routelist, RouteMapConfiguration &configu
         }
 #endif
 
-        nrdlon = dlon;
         if(configuration.positive_longitudes && dlon < 0)
             dlon += 360;
 
@@ -794,14 +790,84 @@ bool Position::Propagate(IsoRouteList &routelist, RouteMapConfiguration &configu
            Polar::VelocityApparentWind(VB, H, VW) > configuration.MaxApparentWindKnots)
             continue;
 
-        /* landfall test */
-        if(configuration.DetectLand && CrossesLand(dlat, nrdlon))
-            continue;
-        
-        /* Boundary test */
-        if(configuration.DetectBoundary && EntersBoundary(dlat, dlon))
-            continue;
+        if(configuration.DetectLand || configuration.DetectBoundary) {
+            double dlat1, dlon1; 
+            double bearing, dist2end;
+            double dist2test;
 
+            // it's not an error if there's boundaries after we reach destination
+            ll_gc_ll_reverse(lat, lon, configuration.EndLat, configuration.EndLon, &bearing, &dist2end);
+            if (dist2end < dist) {
+                dist2test = dist2end;
+                ll_gc_ll(lat, lon, heading_resolve(BG), dist2test, &dlat1, &dlon1);
+            }
+            else {
+                dist2test = dist;
+                dlat1 = dlat;
+                dlon1 = dlon;
+            }
+ 
+            /* landfall test */
+            if(configuration.DetectLand) {
+                double ndlon1 = dlon1;
+                
+                // Check first if crossing land.
+                if (ndlon1 > 360) {
+                    ndlon1 -= 360;
+                }
+                if (CrossesLand(dlat1, ndlon1))
+                {
+                    configuration.land_crossing = true;
+                    continue;
+                }
+            
+                // CUSTOMIZATION - Safety distance from land
+                // -----------------------------------------
+                // Modify the routing according to a safety
+                // margin defined by the user from the land.
+                // CONFIG: 2 NM as a security distance by default.
+                double distSecure = configuration.SafetyMarginLand;
+                double latBorderUp1, lonBorderUp1, latBorderUp2, lonBorderUp2;
+                double latBorderDown1, lonBorderDown1, latBorderDown2, lonBorderDown2;
+                
+                // Test if land is found within a rectangle with
+                // dimensiosn (dist, distSecure). Tests borders, plus diag,
+                // and middle of each side...
+                //            <- dist ->
+                // |-------------------------------|
+                // |                               |    ^
+                // |                               |    distSafety
+                // |-------------------------------|    ^
+                // |                               |
+                // |                               |
+                // |-------------------------------|
+                
+                // Fist, find the (lat,long) of each
+                // points of the rectangle
+                ll_gc_ll(lat, lon, heading_resolve(BG)-90, distSecure, &latBorderUp1, &lonBorderUp1);
+                ll_gc_ll(dlat1, dlon1, heading_resolve(BG)-90, distSecure, &latBorderUp2, &lonBorderUp2);
+                ll_gc_ll(lat, lon, heading_resolve(BG)+90, distSecure, &latBorderDown1, &lonBorderDown1);
+                ll_gc_ll(dlat1, dlon1, heading_resolve(BG)+90, distSecure, &latBorderDown2, &lonBorderDown2);
+                
+                // Then, test if there is land
+                if (PlugIn_GSHHS_CrossesLand(latBorderUp1, lonBorderUp1, latBorderUp2, lonBorderUp2) ||
+                    PlugIn_GSHHS_CrossesLand(latBorderDown1, lonBorderDown1, latBorderDown2, lonBorderDown2) ||
+                    PlugIn_GSHHS_CrossesLand(latBorderUp1, lonBorderUp1, latBorderDown2, lonBorderDown2) ||
+                    PlugIn_GSHHS_CrossesLand(latBorderDown1, lonBorderDown1, latBorderUp2, lonBorderUp2))
+                {
+                    configuration.land_crossing = true;
+                    continue;
+                }
+            }
+
+            /* Boundary test */
+            if(configuration.DetectBoundary) {
+                if (EntersBoundary(dlat1, dlon1)) {
+                    configuration.boundary_crossing = true;
+                    continue;
+                }
+            }
+        }
         /* crosses cyclone track(s)? */
         if(configuration.AvoidCycloneTracks &&
            RouteMap::ClimatologyCycloneTrackCrossings) {
@@ -842,7 +908,7 @@ bool Position::Propagate(IsoRouteList &routelist, RouteMapConfiguration &configu
 /* propagate to the end position in the configuration, and return the number of seconds it takes */
 double Position::PropagateToEnd(RouteMapConfiguration &configuration, double &H, int &data_mask)
 {
-    double S = Swell(configuration.grib, lat, lon);
+    double S = Swell(configuration, lat, lon);
     if(S > configuration.MaxSwellMeters)
         return NAN;
 
@@ -868,6 +934,8 @@ double Position::PropagateToEnd(RouteMapConfiguration &configuration, double &H,
     double B, VB, BG = W, VBG;
     int iters = 0;
     H = 0;
+    bool old = configuration.OptimizeTacking;
+    configuration.OptimizeTacking = true;
     do {
         /* make our correction in range */
         while(bearing - BG > 180)
@@ -883,22 +951,25 @@ double Position::PropagateToEnd(RouteMapConfiguration &configuration, double &H,
         int newpolar = configuration.boat.TrySwitchPolar(polar, VW, H, S, configuration.OptimizeTacking);
         if(newpolar == -1) {
             configuration.polar_failed = true;
+            configuration.OptimizeTacking = old;
             return NAN;
         }
         
         if(!ComputeBoatSpeed(configuration, 0, WG, VWG, W, VW, C, VC, H, atlas, data_mask,
-                             B, VB, BG, VBG, dummy_dist, newpolar))
+                             B, VB, BG, VBG, dummy_dist, newpolar)
+                || ++iters == 10 // give up
+          ) {
+            configuration.OptimizeTacking = old;
             return NAN;
-
-        if(++iters == 10) // give up
-            return NAN;
+        }
     } while((bearing - BG) > 1e-3);
+    configuration.OptimizeTacking = old;
 
     /* only allow if we fit in the isochron time.  We could optimize this by finding
        the maximum boat speed once, and using that before computing boat speed for
        this angle, but for now, we don't worry because propagating to the end is a
        small amount of total computation */
-    if(dist / VBG > configuration.dt / 3600.0)
+    if(dist / VBG > configuration.DeltaTime / 3600.0)
         return NAN;
     
     /* quick test first to avoid slower calculation */
@@ -1258,7 +1329,7 @@ bool IsoRoute::ApplyCurrents(GribRecordSet *grib, wxDateTime time, RouteMapConfi
 
     bool ret = false;
     Position *p = skippoints->point;
-    double timeseconds = configuration.dt;
+    double timeseconds = configuration.DeltaTime;
     do {
         double C, VC;
         if(configuration.Currents && Current(grib, configuration.ClimatologyType,
@@ -2127,7 +2198,7 @@ void IsoRoute::PropagateToEnd(RouteMapConfiguration &configuration, double &mind
 
         /* did we tack thru the wind? apply penalty */
         bool tacked = false;
-        if(!isnan(dt) && p->parent_heading*H < 0 && fabs(p->parent_heading - H) < 180) {
+        if(!wxIsNaN(dt) && p->parent_heading*H < 0 && fabs(p->parent_heading - H) < 180) {
             tacked = true;
             dt += configuration.TackingTime;
 #if 0        
@@ -2136,7 +2207,7 @@ void IsoRoute::PropagateToEnd(RouteMapConfiguration &configuration, double &mind
 #endif
         }
 
-        if(!isnan(dt) && dt < mindt) {
+        if(!wxIsNaN(dt) && dt < mindt) {
             mindt = dt;
             minH = H;
             endp = p;
@@ -2188,22 +2259,30 @@ void IsoRoute::UpdateStatistics(int &routes, int &invroutes, int &skippositions,
     positions += Count();
 }
 
-IsoChron::IsoChron(IsoRouteList r, wxDateTime t, GribRecordSet *g, bool grib_is_data_deficient)
-    : routes(r), time(t), m_Grib(g), m_Grib_is_data_deficient(grib_is_data_deficient)
+typedef  wxWeakRef<Shared_GribRecordSet> Shared_GribRecordSetRef;
+
+static std::map<time_t, Shared_GribRecordSetRef> grib_key;
+static wxMutex s_key_mutex;
+
+IsoChron::IsoChron(IsoRouteList r, wxDateTime t, Shared_GribRecordSet &g, bool grib_is_data_deficient)
+    : routes(r), time(t), m_SharedGrib(g), m_Grib(0), m_Grib_is_data_deficient(grib_is_data_deficient)
 {
+    m_Grib = m_SharedGrib.GetGribRecordSet();
+    if (m_Grib ) {
+        wxMutexLocker lock(s_key_mutex);
+        grib_key[m_Grib->m_Reference_Time] = &m_SharedGrib;
+    }
+}
+
+Shared_GribRecordSetData::~Shared_GribRecordSetData()
+{ 
+    delete m_GribRecordSet; 
 }
 
 IsoChron::~IsoChron()
 {
     for(IsoRouteList::iterator it = routes.begin(); it != routes.end(); ++it)
         delete *it;
-
-    /* done with grib */
-    if(m_Grib) {
-        for(int i=0; i<Idx_COUNT; i++)
-            delete m_Grib->m_GribRecordPtrArray[i];
-        delete m_Grib;
-    }
 }
 
 void IsoChron::PropagateIntoList(IsoRouteList &routelist, RouteMapConfiguration &configuration)
@@ -2270,20 +2349,24 @@ bool IsoChron::Contains(double lat, double lon)
     return Contains(p);
 }
 
-Position* IsoChron::ClosestPosition(double lat, double lon, double *dist)
+Position* IsoChron::ClosestPosition(double lat, double lon, wxDateTime *t, double *d)
 {
     Position *minpos = NULL;
     double mindist = INFINITY;
+    wxDateTime mint;
     for(IsoRouteList::iterator it = routes.begin(); it != routes.end(); ++it) {
         double dist;
         Position *pos = (*it)->ClosestPosition(lat, lon, &dist);
         if(pos && dist < mindist) {
             minpos = pos;
             mindist = dist;
+            mint = time;
         }
     }
-    if(dist)
-        *dist = mindist;
+    if(d)
+        *d = mindist;
+    if(t)
+        *t = mint;
     return minpos;
 }
 
@@ -2419,6 +2502,8 @@ bool RouteMap::Propagate()
     RouteMapConfiguration configuration = m_Configuration;
     configuration.polar_failed = false;
     configuration.wind_data_failed = false;
+    configuration.boundary_crossing = false;
+    configuration.land_crossing = false;
 
     // reset grib data deficient flag
     bool grib_is_data_deficient = false;
@@ -2434,13 +2519,14 @@ bool RouteMap::Propagate()
         grib_is_data_deficient = true;
     }
 
-    GribRecordSet *grib = m_NewGrib;
+    Shared_GribRecordSet shared_grib = m_SharedNewGrib;
     wxDateTime time = m_NewTime;
 
     // request the next grib
     // in a different thread (grib record averaging going in parallel)
-    m_NewGrib = NULL;
-    m_NewTime += wxTimeSpan(0, 0, configuration.dt);
+    m_NewGrib = 0;
+    m_SharedNewGrib.SetGribRecordSet(0);
+    m_NewTime += wxTimeSpan(0, 0, configuration.DeltaTime);
     m_bNeedsGrib = configuration.UseGrib;
 
     Unlock();
@@ -2475,11 +2561,6 @@ bool RouteMap::Propagate()
     IsoChron* update;
     if(routelist.empty()) {
         update = NULL;
-        if(grib) { // grib data isn't used after all
-            for(int i=0; i<Idx_COUNT; i++)
-                delete grib->m_GribRecordPtrArray[i];
-            delete grib;
-        }
     } else {
         IsoRouteList merged;
         if(!ReduceList(merged, routelist, configuration))
@@ -2488,7 +2569,7 @@ bool RouteMap::Propagate()
         for(IsoRouteList::iterator it = merged.begin(); it != merged.end(); ++it)
             (*it)->ReduceClosePoints();
 
-        update = new IsoChron(merged, time, grib, grib_is_data_deficient);
+        update = new IsoChron(merged, time, shared_grib, grib_is_data_deficient);
     }
 
     Lock();
@@ -2508,18 +2589,27 @@ bool RouteMap::Propagate()
     if(configuration.wind_data_failed)
         m_bNoData = true;
 
+    if(configuration.boundary_crossing)
+        m_bBoundaryCrossing = true;
+
+    if(configuration.land_crossing)
+        m_bLandCrossing = true;
+
     Unlock();
 
     return true;
 }
 
-Position *RouteMap::ClosestPosition(double lat, double lon, double *dist)
+Position *RouteMap::ClosestPosition(double lat, double lon, wxDateTime *t, double *d)
 {
     if(origin.empty())
         return NULL;
 
     Position *minpos = NULL;
     double mindist = INFINITY;
+    bool inside;
+    bool first = (t !=0);
+    wxDateTime min_t;
     Lock();
 
     IsoChronList::iterator it = origin.end();
@@ -2528,24 +2618,34 @@ Position *RouteMap::ClosestPosition(double lat, double lon, double *dist)
     do {
         it--;
         double dist;
-        Position *pos = (*it)->ClosestPosition(p.lat, p.lon, &dist);
+        wxDateTime cur_t;
+        Position *pos = (*it)->ClosestPosition(p.lat, p.lon, &cur_t, &dist);
         
-        if(pos && dist < mindist) {
+        if(dist > mindist)
+            break;
+
+        if(pos && dist <= mindist) {
             minpos = pos;
             mindist = dist;
-        } else if(dist > mindist)
-            break;
+            if (!min_t.IsValid() || (cur_t.IsValid() && cur_t < min_t))
+                min_t = cur_t;
+        }
+        /* bail if we don't contain because obviously we aren't getting any closer
+        */
 
-        /* bail if we don't contain because obviously we aren't getting any closer */
-        if(!(*it)->Contains(p))
+        inside = (*it)->Contains(p);
+        if(!inside && !first) 
             break;
-
+        if(inside)
+            first = false;
     } while(it != origin.begin());
 
     Unlock();
 
-    if(dist)
-        *dist = mindist;
+    if(d)
+        *d = mindist;
+    if(t)
+        *t = min_t;
     return minpos;
 }
 
@@ -2555,14 +2655,19 @@ void RouteMap::Reset()
     Clear();
 
     m_NewGrib = NULL;
+    m_SharedNewGrib.SetGribRecordSet(0);
+    
     m_NewTime = m_Configuration.StartTime;
     m_bNeedsGrib = m_Configuration.UseGrib;
+    m_ErrorMsg = wxEmptyString;
 
     m_bReachedDestination = false;
     m_bGribFailed = false;
     m_bPolarFailed = false;
     m_bNoData = false;
     m_bFinished = false;
+    m_bLandCrossing = false;
+    m_bBoundaryCrossing = false;
 
     Unlock();
 }
@@ -2574,11 +2679,30 @@ void RouteMap::SetNewGrib(GribRecordSet *grib)
        !grib->m_GribRecordPtrArray[Idx_WIND_VY])
         return;
 
+    // XXX should be grib->m_ID in a newer OpenCPN version
+    unsigned int bogus_ID; // grib->m_ID
+
+    GribRecord *tmp = grib->m_GribRecordPtrArray[Idx_WIND_VX];
+    // RecordRefDate is time_t and high byte is likely the same in many grib files, add some entropy
+    bogus_ID = tmp->getRecordRefDate () ^ (tmp->getIdCenter() << 24) ^ (tmp->getNi() << 16);
+
+    {
+        std::map<time_t, Shared_GribRecordSetRef>::iterator it; 
+        wxMutexLocker lock(s_key_mutex);
+        it = grib_key.find(grib->m_Reference_Time);
+        if (it != grib_key.end() && it->second != 0 ) {
+            m_SharedNewGrib = *it->second;
+            m_NewGrib = m_SharedNewGrib.GetGribRecordSet();
+            // compute fake generation grib->m_ID
+            if (m_NewGrib->m_ID == bogus_ID) {
+                return;
+            }
+        }
+    }
     /* copy the grib record set */
-    m_NewGrib = new GribRecordSet;
+    m_NewGrib = new WR_GribRecordSet(bogus_ID /* XXX */);
     m_NewGrib->m_Reference_Time = grib->m_Reference_Time;
     for(int i=0; i<Idx_COUNT; i++) {
-        m_NewGrib->m_GribRecordPtrArray[i] = NULL;
         switch (i) {
         case Idx_HTSIGW:
         case Idx_WIND_GUST:
@@ -2587,13 +2711,55 @@ void RouteMap::SetNewGrib(GribRecordSet *grib)
         case Idx_SEACURRENT_VX:
         case Idx_SEACURRENT_VY:
             if(grib->m_GribRecordPtrArray[i]) {
-                m_NewGrib->m_GribRecordPtrArray[i] = new GribRecord (*grib->m_GribRecordPtrArray[i]);
+                m_NewGrib->SetUnRefGribRecord(i, new GribRecord (*grib->m_GribRecordPtrArray[i]));
             }
             break;
         default:
             break;
         }
     }
+    m_SharedNewGrib.SetGribRecordSet(m_NewGrib);
+}
+
+void RouteMap::SetNewGrib(WR_GribRecordSet *grib)
+{
+    if(!grib ||
+       !grib->m_GribRecordPtrArray[Idx_WIND_VX] ||
+       !grib->m_GribRecordPtrArray[Idx_WIND_VY])
+        return;
+
+    {
+        std::map<time_t, Shared_GribRecordSetRef>::iterator it; 
+        wxMutexLocker lock(s_key_mutex);
+        it = grib_key.find(grib->m_Reference_Time);
+        if (it != grib_key.end() && it->second != 0 ) {
+            m_SharedNewGrib = *it->second;
+            m_NewGrib = m_SharedNewGrib.GetGribRecordSet();
+            if (m_NewGrib->m_ID == grib->m_ID) {
+                return;
+            }
+        }
+    }
+    /* copy the grib record set */
+    m_NewGrib = new WR_GribRecordSet(grib->m_ID);
+    m_NewGrib->m_Reference_Time = grib->m_Reference_Time;
+    for(int i=0; i<Idx_COUNT; i++) {
+        switch (i) {
+        case Idx_HTSIGW:
+        case Idx_WIND_GUST:
+        case Idx_WIND_VX:
+        case Idx_WIND_VY:
+        case Idx_SEACURRENT_VX:
+        case Idx_SEACURRENT_VY:
+            if(grib->m_GribRecordPtrArray[i]) {
+                m_NewGrib->SetUnRefGribRecord(i, new GribRecord (*grib->m_GribRecordPtrArray[i]));
+            }
+            break;
+        default:
+            break;
+        }
+    }
+    m_SharedNewGrib.SetGribRecordSet(m_NewGrib);
 }
 
 void RouteMap::GetStatistics(int &isochrons, int &routes, int &invroutes, int &skippositions, int &positions)

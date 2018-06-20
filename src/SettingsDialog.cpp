@@ -44,8 +44,9 @@ const wxString SettingsDialog::column_names[] = {"", "Boat", "Start", "Start Tim
                                                  "Avg Wind", "Max Wind", "Max Wind Gust",
                                                  "Avg Current", "Max Current",
                                                  "Avg Swell", "Max Swell",
-                                                 "Upwind Percentage",
-                                                 "Port Starboard", "Tacks", "State"};
+                                                 "Upwind Percentage", "Port Starboard",
+                                                 "Tacks", "Sailing Comfort",
+                                                 "State"};
 
 SettingsDialog::SettingsDialog( wxWindow *parent )
 #ifndef __WXOSX__
@@ -80,7 +81,12 @@ void SettingsDialog::LoadSettings()
     int AlternateRouteThickness = m_sAlternateRouteThickness->GetValue();
     pConf->Read( _T("AlternateRouteThickness"), &AlternateRouteThickness, AlternateRouteThickness);
     m_sAlternateRouteThickness->SetValue(AlternateRouteThickness);
-
+    
+    // Cursor Route optional
+    bool DisplayCursorRoute = m_cbDisplayCursorRoute->GetValue();
+    pConf->Read( _T("CursorRoute"), &DisplayCursorRoute, DisplayCursorRoute);
+    m_cbDisplayCursorRoute->SetValue(DisplayCursorRoute);
+    
     bool AlternatesForAll = m_cbAlternatesForAll->GetValue();
     pConf->Read( _T("AlternatesForAll"), &AlternatesForAll, AlternatesForAll);
     m_cbAlternatesForAll->SetValue(AlternatesForAll);
@@ -92,6 +98,18 @@ void SettingsDialog::LoadSettings()
     bool DisplayWindBarbs = m_cbDisplayWindBarbs->GetValue();
     pConf->Read( _T("DisplayWindBarbs"), &DisplayWindBarbs, DisplayWindBarbs);
     m_cbDisplayWindBarbs->SetValue(DisplayWindBarbs);
+    
+    // WindBarbsOnRoute Customization
+    bool DisplayWindBarbsOnRoute = m_cbDisplayWindBarbsOnRoute->GetValue();
+    pConf->Read( _T("DisplayWindBarbsOnRoute"), &DisplayWindBarbsOnRoute,
+                DisplayWindBarbsOnRoute);
+    m_cbDisplayWindBarbsOnRoute->SetValue(DisplayWindBarbsOnRoute);
+    
+    // ComfortOnRoute Customization
+    bool DisplayComfortOnRoute = m_cbDisplayComfort->GetValue();
+    pConf->Read( _T("DisplayComfortOnRoute"), &DisplayComfortOnRoute,
+                DisplayComfortOnRoute);
+    m_cbDisplayComfort->SetValue(DisplayComfortOnRoute);
 
     bool DisplayCurrent = m_cbDisplayCurrent->GetValue();
     pConf->Read( _T("DisplayCurrent"), &DisplayCurrent, DisplayCurrent);
@@ -136,8 +154,13 @@ void SettingsDialog::SaveSettings( )
     pConf->Write( _T("IsoChronThickness"), m_sIsoChronThickness->GetValue());
     pConf->Write( _T("AlternateRouteThickness"), m_sAlternateRouteThickness->GetValue());
     pConf->Write( _T("AlternatesForAll"), m_cbAlternatesForAll->GetValue());
+    // CursorOnRoute Customization
+    pConf->Write( _T("CursorRoute"), m_cbDisplayCursorRoute->GetValue());
     pConf->Write( _T("MarkAtPolarChange"), m_cbMarkAtPolarChange->GetValue());
     pConf->Write( _T("DisplayWindBarbs"), m_cbDisplayWindBarbs->GetValue());
+    // WindBarbsOnRoute Customization
+    pConf->Write( _T("DisplayWindBarbsOnRoute"), m_cbDisplayWindBarbsOnRoute->GetValue());
+    pConf->Write( _T("DisplayComfortOnRoute"), m_cbDisplayComfort->GetValue());
     pConf->Write( _T("DisplayCurrent"), m_cbDisplayCurrent->GetValue());
 
     pConf->Write( _T("ConcurrentThreads"), m_sConcurrentThreads->GetValue());

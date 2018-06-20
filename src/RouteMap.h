@@ -24,14 +24,16 @@
  */
 
 #include "wx/datetime.h"
+#include <wx/object.h>
+#include <wx/weakref.h>
 
 #include <list>
 
 #include "ODAPI.h"
+#include "GribRecordSet.h"
 
 struct RouteMapConfiguration;
 class IsoRoute;
-class GribRecordSet;
 
 typedef std::list<IsoRoute*> IsoRouteList;
 
@@ -146,32 +148,142 @@ public:
     IsoRouteList children; /* inner inverted regions */
 };
 
+// -----------------
+class WR_GribRecordSet {
+public:
+    WR_GribRecordSet(unsigned int id) : m_Reference_Time(-1), m_ID(id) {
+        for(int i=0; i<Idx_COUNT; i++) {
+            m_GribRecordPtrArray[i] = 0;
+            m_GribRecordUnref[i] = false;
+        }
+    }
+
+    virtual ~WR_GribRecordSet()
+    {
+         RemoveGribRecords();
+    }
+
+    /* copy and paste by plugins, keep functions in header */
+    void SetUnRefGribRecord(int i, GribRecord *pGR ) { 
+        assert (i >= 0 && i < Idx_COUNT);
+        if (m_GribRecordUnref[i] == true) {
+            delete m_GribRecordPtrArray[i];
+        }
+        m_GribRecordPtrArray[i] = pGR;
+        m_GribRecordUnref[i] = true;
+    }
+
+    void RemoveGribRecords( ) { 
+        for(int i=0; i<Idx_COUNT; i++) {
+            if (m_GribRecordUnref[i] == true) {
+                delete m_GribRecordPtrArray[i];
+            }
+        }
+    }
+
+    time_t m_Reference_Time;
+    unsigned int m_ID;
+
+    GribRecord *m_GribRecordPtrArray[Idx_COUNT];
+private:
+    // grib records files are stored and owned by reader mapGribRecords
+    // interpolated grib are not, keep track of them
+    bool        m_GribRecordUnref[Idx_COUNT];
+};
+
+// ------
+class Shared_GribRecordSetData: public wxRefCounter
+{
+public:
+    Shared_GribRecordSetData( WR_GribRecordSet *gribset = 0 ) : m_GribRecordSet(gribset) { }
+    Shared_GribRecordSetData( const Shared_GribRecordSetData& data ) : m_GribRecordSet(data.m_GribRecordSet) { }
+
+    void SetGribRecordSet( WR_GribRecordSet *gribset )  { m_GribRecordSet = gribset; }
+    WR_GribRecordSet * GetGribRecordSet() const { return m_GribRecordSet; }
+
+    ~Shared_GribRecordSetData();
+
+protected:
+     WR_GribRecordSet *m_GribRecordSet;
+                    
+};
+
+// ------
+class Shared_GribRecordSet: public wxTrackable
+{
+public:
+    // initializes this, assigning to the
+    // internal data pointer a new instance of Shared_GribRecordSetData
+    Shared_GribRecordSet( WR_GribRecordSet * ptr = 0 ) : m_data( new Shared_GribRecordSetData(ptr) )
+    {
+    }
+    Shared_GribRecordSet& operator =( const Shared_GribRecordSet& tocopy )
+    {
+        // shallow copy: this is just a fast copy of pointers; the real
+        // memory-consuming data which typically is stored inside
+        m_data = tocopy.m_data;
+        return *this;
+    }
+
+    void SetGribRecordSet( WR_GribRecordSet * ptr )
+    {
+        // make sure changes to this class do not affect other instances
+        // currently sharing our same refcounted data:
+        UnShare();
+        m_data->SetGribRecordSet( ptr );
+    }
+
+    WR_GribRecordSet * GetGribRecordSet() const
+    {
+       return m_data->GetGribRecordSet();
+    }
+
+    bool operator == ( const Shared_GribRecordSet& other ) const
+    {
+        if (m_data.get() == other.m_data.get())
+            return true; // this instance and the 'other' one share the same data...
+        return (m_data->GetGribRecordSet() == other.m_data->GetGribRecordSet());
+    }
+
+    wxObjectDataPtr<Shared_GribRecordSetData> m_data;
+
+protected:
+    void UnShare()
+    {
+        if (m_data->GetRefCount() == 1)
+            return;
+        m_data.reset( new Shared_GribRecordSetData( *m_data ) );
+    }
+};
+
 /* list of routes with equal time to reach */
 class IsoChron
 {
 public:
-    IsoChron(IsoRouteList r, wxDateTime t, GribRecordSet *g, bool grib_is_data_deficient);
+    IsoChron(IsoRouteList r, wxDateTime t, Shared_GribRecordSet &g, bool grib_is_data_deficient);
     ~IsoChron();
 
     void PropagateIntoList(IsoRouteList &routelist, RouteMapConfiguration &configuration);
     bool Contains(Position &p);
     bool Contains(double lat, double lon);
-    Position *ClosestPosition(double lat, double lon, double *dist=0);
+    Position *ClosestPosition(double lat, double lon, wxDateTime *t = 0, double *dist=0);
     void ResetDrawnFlag();
 
     IsoRouteList routes;
     wxDateTime time;
-    GribRecordSet *m_Grib;
+    Shared_GribRecordSet m_SharedGrib;
+    WR_GribRecordSet *m_Grib;
     bool m_Grib_is_data_deficient;
 };
 
 typedef std::list<IsoChron*> IsoChronList;
 
 struct RouteMapPosition {
-    RouteMapPosition(wxString n, double lat0, double lon0)
-    : Name(n), lat(lat0), lon(lon0) {}
+    RouteMapPosition(wxString n, double lat0, double lon0, wxString guid = wxEmptyString)
+    : Name(n), GUID(guid), lat(lat0), lon(lon0) {}
 
     wxString Name;
+    wxString GUID;
     double lat, lon;
 };
 
@@ -179,10 +291,11 @@ struct RouteMapConfiguration {
     RouteMapConfiguration () : StartLon(0), EndLon(0), grib_is_data_deficient(false) {} /* avoid waiting forever in update longitudes */
     bool Update();
 
+    wxString RouteGUID;       /* Route GUID if any */
     wxString Start, End;
     wxDateTime StartTime;
 
-    double dt; /* time in seconds between propagations */
+    double DeltaTime; /* time in seconds between propagations */
 
     Boat boat;
     wxString boatFileName;
@@ -191,6 +304,7 @@ struct RouteMapConfiguration {
 
     double MaxDivertedCourse, MaxCourseAngle, MaxSearchAngle, MaxTrueWindKnots, MaxApparentWindKnots;
     double MaxSwellMeters, MaxLatitude, TackingTime, WindVSCurrent;
+    double SafetyMarginLand;
 
     bool AvoidCycloneTracks;
     int CycloneMonths, CycloneDays;
@@ -216,9 +330,10 @@ struct RouteMapConfiguration {
     by about 8%.  Is it even useful?  */
 
     // parameters
-    GribRecordSet *grib;
+    WR_GribRecordSet *grib;
     wxDateTime time;
     bool grib_is_data_deficient, polar_failed, wind_data_failed;
+    bool land_crossing, boundary_crossing;
 };
 
 bool operator!=(const RouteMapConfiguration &c1, const RouteMapConfiguration &c2);
@@ -240,16 +355,19 @@ public:
     LOCKING_ACCESSOR(GribFailed, m_bGribFailed)
     LOCKING_ACCESSOR(PolarFailed, m_bPolarFailed)
     LOCKING_ACCESSOR(NoData, m_bNoData)
+    LOCKING_ACCESSOR(LandCrossing, m_bLandCrossing)
+    LOCKING_ACCESSOR(BoundaryCrossing, m_bBoundaryCrossing)
 
     bool Empty() { Lock(); bool empty = origin.size() == 0; Unlock(); return empty; }
     bool NeedsGrib() { Lock(); bool needsgrib = m_bNeedsGrib; Unlock(); return needsgrib; }
     void RequestedGrib() { Lock(); m_bNeedsGrib=false; Unlock(); }
     void SetNewGrib(GribRecordSet *grib);
+    void SetNewGrib(WR_GribRecordSet *grib);
     wxDateTime NewTime() { Lock(); wxDateTime time =  m_NewTime; Unlock(); return time; }
-    wxDateTime StartTime() { Lock(); wxDateTime time; if(origin.size()) time = origin.front()->time;
+    wxDateTime StartTime() { Lock(); wxDateTime time = m_Configuration.StartTime;
         Unlock(); return time; }
 
-    void SetConfiguration(RouteMapConfiguration &o) { Lock();
+    void SetConfiguration(const RouteMapConfiguration &o) { Lock();
         m_Configuration = o;
         m_bValid = m_Configuration.Update();
         m_bFinished = false;
@@ -273,10 +391,21 @@ public:
     void ResetFinished() { Lock(); m_bFinished = false; Unlock(); }
     wxString LoadBoat() { return m_Configuration.boat.OpenXML(m_Configuration.boatFileName); }
 
+    // XXX Isn't wxString refcounting thread safe?
+    wxString GetError() { Lock(); wxString ret = m_ErrorMsg; Unlock(); return ret; }
+
+    void SetError(wxString msg) {
+       Lock();
+       m_ErrorMsg = msg;
+       m_bValid = false;
+       m_bFinished = false;
+       Unlock();
+    }
+
 protected:
     virtual void Clear();
     bool ReduceList(IsoRouteList &merged, IsoRouteList &routelist, RouteMapConfiguration &configuration);
-    Position *ClosestPosition(double lat, double lon, double *dist=0);
+    Position *ClosestPosition(double lat, double lon, wxDateTime *t=0, double *dist=0);
 
     /* protect any member variables with mutexes if needed */
     virtual void Lock() = 0;
@@ -285,13 +414,17 @@ protected:
 
     IsoChronList origin; /* list of route isos in order of time */
     bool m_bNeedsGrib;
-    GribRecordSet *m_NewGrib;
+    Shared_GribRecordSet m_SharedNewGrib;
+    WR_GribRecordSet *m_NewGrib;
 
 private:
-
+ 
     RouteMapConfiguration m_Configuration;
     bool m_bFinished, m_bValid;
     bool m_bReachedDestination, m_bGribFailed, m_bPolarFailed, m_bNoData;
+    bool m_bLandCrossing, m_bBoundaryCrossing;
+
+    wxString m_ErrorMsg;
 
     wxDateTime m_NewTime;
 };

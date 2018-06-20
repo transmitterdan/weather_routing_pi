@@ -4,7 +4,7 @@
  * Author:   Sean D'Epagnier
  *
  ***************************************************************************
- *   Copyright (C) 2015 by Sean D'Epagnier                                 *
+ *   Copyright (C) 2018 by Sean D'Epagnier                                 *
  *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
@@ -36,6 +36,7 @@
 #include "RouteMapOverlay.h"
 #include "SettingsDialog.h"
 
+
 RouteMapOverlayThread::RouteMapOverlayThread(RouteMapOverlay &routemapoverlay)
     : wxThread(wxTHREAD_JOINABLE), m_RouteMapOverlay(routemapoverlay)
 {
@@ -48,7 +49,8 @@ void *RouteMapOverlayThread::Entry()
         if(!m_RouteMapOverlay.Propagate())
             wxThread::Sleep(50);
         else {
-            m_RouteMapOverlay.UpdateCursorPosition();
+            // don't do it inside worker thread, race
+            // m_RouteMapOverlay.UpdateCursorPosition();
             m_RouteMapOverlay.UpdateDestination();
             wxThread::Sleep(5);
         }
@@ -61,7 +63,8 @@ RouteMapOverlay::RouteMapOverlay()
     : m_UpdateOverlay(true), m_bEndRouteVisible(false), m_Thread(NULL),
       last_cursor_lat(0), last_cursor_lon(0),
       last_cursor_position(NULL), destination_position(NULL), last_destination_position(NULL),
-      m_bUpdated(false), m_overlaylist(0), wind_barb_cache_origin_size(0), current_cache_origin_size(0)
+      m_bUpdated(false), m_overlaylist(0),
+      clear_destination_plotdata(false),current_cache_origin_size(0)
 {
 }
 
@@ -98,9 +101,6 @@ bool RouteMapOverlay::Start(wxString &error)
         error = _("Configuration specifies boundary exclusion but ocpn_draw_pi boundary data not available");
         return false;
     }
-
-    //if(configuration.OptimizeTacking)
-    //m_Configuration.boat.OptimizeTacking();
 
     if(!configuration.UseGrib &&
        configuration.ClimatologyType <= RouteMapConfiguration::CURRENTS_ONLY) {
@@ -219,6 +219,7 @@ static wxColour TransparentColor(wxColor c)
     return wxColor(c.Red(), c.Green(), c.Blue(), c.Alpha()*7/24);
 }
 
+
 void RouteMapOverlay::RenderIsoRoute(IsoRoute *r, wxColour &grib_color, wxColour &climatology_color,
                                      wrDC &dc, PlugIn_ViewPort &vp)
 {
@@ -286,10 +287,12 @@ static wxColour Darken(wxColour c)
 void RouteMapOverlay::Render(wxDateTime time, SettingsDialog &settingsdialog,
                              wrDC &dc, PlugIn_ViewPort &vp, bool justendroute)
 {
+    dc.SetPen(*wxBLACK); // reset pen
+    dc.SetBrush( *wxTRANSPARENT_BRUSH); // reset brush
     if(!justendroute) {
         RouteMapConfiguration configuration = GetConfiguration();
 
-        if(!isnan(configuration.StartLat)) {
+        if(!wxIsNaN(configuration.StartLat)) {
             wxPoint r;
             GetCanvasPixLL(&vp, &r, configuration.StartLat, configuration.StartLon);
             SetColor(dc, *wxBLUE, true);
@@ -299,7 +302,7 @@ void RouteMapOverlay::Render(wxDateTime time, SettingsDialog &settingsdialog,
             dc.DrawLine(r.x-10, r.y+7, r.x+10, r.y+7);
         }
 
-        if(!isnan(configuration.StartLon)) {
+        if(!wxIsNaN(configuration.StartLon)) {
             wxPoint r;
             GetCanvasPixLL(&vp, &r, configuration.EndLat, configuration.EndLon);
             SetColor(dc, *wxRED, true);
@@ -379,7 +382,7 @@ void RouteMapOverlay::Render(wxDateTime time, SettingsDialog &settingsdialog,
                 Unlock();
             }
 
-            unsigned char routecolors[][3] = {
+            static const unsigned char routecolors[][3] = {
                 {  0,   0, 128}, {  0, 192,   0}, {  0, 128, 192}, {  0, 255,   0},
                 {  0,   0, 255}, {  0, 128, 128}, {  0, 255,   0}, {  0, 192, 192},
                 {  0, 128, 255}, {  0, 255, 128}, {  0,   0, 255}, {  0, 192,   0},
@@ -431,100 +434,360 @@ void RouteMapOverlay::Render(wxDateTime time, SettingsDialog &settingsdialog,
             DestinationColor = settingsdialog.m_cpDestinationRoute->GetColour();
         bool MarkAtPolarChange = settingsdialog.m_cbMarkAtPolarChange->GetValue();
 
-        if(!justendroute) {
+        if(!justendroute && settingsdialog.m_cbDisplayCursorRoute->GetValue()) {
             SetColor(dc, CursorColor, true);
             SetWidth(dc, RouteThickness, true);
-            RenderCourse(last_cursor_position, time, false, dc, vp);
+            RenderCourse(true, dc, vp);
 
             if(MarkAtPolarChange) {
                 SetColor(dc, Darken(CursorColor), true);
                 SetWidth(dc, (RouteThickness+1)/2, true);
-                RenderCourse(last_cursor_position, time, true, dc, vp);
+                RenderPolarChangeMarks(true, dc, vp);
             }
         }
         SetColor(dc, DestinationColor, true);
         SetWidth(dc, RouteThickness, true);
-        RenderCourse(last_destination_position, time, false, dc, vp);
+        bool confortOnRoute = settingsdialog.m_cbDisplayComfort->GetValue();
+        RenderCourse(false , dc, vp, confortOnRoute);
+        SetColor(dc, Darken(DestinationColor), true);
+        SetWidth(dc, RouteThickness/2, true);
+        RenderBoatOnCourse(false, time, dc, vp);
         
         if(MarkAtPolarChange) {
             SetColor(dc, Darken(DestinationColor), true);
             SetWidth(dc, (RouteThickness+1)/2, true);
-            RenderCourse(last_destination_position, time, true, dc, vp);
+            RenderPolarChangeMarks(false, dc, vp);
         }
     }
 }
 
-void RouteMapOverlay::RenderCourse(Position *pos, wxDateTime time, bool MarkAtPolarChange,
-                                   wrDC &dc, PlugIn_ViewPort &vp)
+
+void RouteMapOverlay::RenderPolarChangeMarks(bool cursor_route, wrDC &dc, PlugIn_ViewPort &vp)
 {
+    Position *pos = cursor_route ? last_cursor_position : last_destination_position;
+
     if(!pos)
         return;
-
+    
     Lock();
 
     /* draw lines to this route */
     Position *p;
     if(!dc.GetDC())
         glBegin(GL_LINES);
-
+    
+    int polar = pos->polar;
     for(p = pos; p && p->parent; p = p->parent) {
-        if(MarkAtPolarChange && p->polar != p->parent->polar) {
-            wxPoint r;
-            GetCanvasPixLL(&vp, &r, p->lat, p->lon);
-            int s = 6;
+        if(p->polar == polar)
+            continue;
+        wxPoint r;
+        GetCanvasPixLL(&vp, &r, p->lat, p->lon);
+        int s = 6;
+        if(dc.GetDC())
+            dc.DrawRectangle(r.x-s, r.y-s, 2*s, 2*s);
+        else {
             glVertex2i(r.x-s, r.y-s), glVertex2i(r.x+s, r.y-s);
             glVertex2i(r.x+s, r.y-s), glVertex2i(r.x+s, r.y+s);
             glVertex2i(r.x+s, r.y+s), glVertex2i(r.x-s, r.y+s);
             glVertex2i(r.x-s, r.y+s), glVertex2i(r.x-s, r.y-s);
-        } else
-            DrawLine(p, p->parent, dc, vp);
+        }
+        polar = p->polar;
     }
     if(!dc.GetDC())
         glEnd();
+    Unlock();
+}
 
-    /* render boat on optimal course at time */
-    IsoChronList::iterator it = origin.begin();
+/* Customization ComfortDisplay
+ * ----------------------------------------------------------------------------
+ * The idea is to display on the weather route different colors giving an idea
+ * of the sailing comfort along the trip:
+ *    Green = Light conditions, relax and enjoy
+ *    Orange = Can be tough, stay focus
+ *    Red = Strong conditions, heavy sailors, be prepared
+ */
+int RouteMapOverlay::sailingConditionLevel(const PlotData &plot) const
+{
+    /* Method to calculate a indicator between 1 and 3 of the sailing conditions
+     * based on wind, wind course and waves.
+     *
+     * All these calculations are empirical and just made from experience and how
+     * people feel sailing comfort which is a highly subjective value...
+     */
+    
+    double level_calc = 0.0;
+    
+    // Define mximum constants. Over this value, sailing comfort is very impacted
+    // (coef > 1) and automatically displayed in red.
+    // Definitions:
+    // AW   - Apparent Wind Direction from the boat (0 = upwind)
+    // VW   - Velocity of wind over water
+    //WVHT - Swell (if available)
+    double MAX_WV = 27;     // Vigilant over 27knts == 7B
+    double MAX_AW = 35;     // Upwind start at 35° from wind
+    double MAX_WVHT = 5;    // No more than 5m waves
+    
+    // Wind impact exponentially on sailing comfort
+    // We propose a power 3 function as difficulties increase exponentially
+    // Over 30knts, it starts to be tough
+    double WV = plot.VW;
+    double WV_normal = pow(WV/MAX_WV, 3);
+   
+    // Wind direction impact on sailing comfort.
+    // Ex: if you decide to sail upwind with 30knts, it is not the same
+    // conditions as if you sail downwind (impact of waves, heel, and more).
+    // Use a normal distribution to set the maximum difficulty at 35° upwind,
+    // and reduce when we go downwind.
+    double AW = heading_resolve(plot.B-plot.W);
+    double teta = 30;
+    double mu = 35;
+    double amp = 20;
+    double AW_normal = amp * (1/(teta*pow((2*M_PI), 0.5))) * exp(-pow(AW-mu, 2)/(2*pow(teta,2)));
+    
+    // If available, add swell conditions in comfort model.
+    // Use same exponential function for swell as sailing
+    // comfort exponentially decrease with swell height.
+    double WVHT = plot.WVHT;
+    double WVHT_normal = 0.0;
+    if (WVHT > 0)
+        WVHT_normal = pow(WVHT/MAX_WVHT, 2);
+    
+    // Calculate score
+    // Use an OR function X,Y E [0,1], f(X,Y) = 1-(1-X)(1-Y)
+    level_calc = 1 - (1 - WV_normal * (1 + AW_normal) * (1 + WVHT_normal));
+    
+    if (level_calc <= 0.5)
+        // Light conditions, enjoy ;-)
+        return 1;
+    if (level_calc > 0.5 &&  level_calc < 1)
+        // Can be tough
+        return 2;
+    if (level_calc >= 1)
+        // Strong conditions
+        return 3;
+    return 0;
+}
 
-    /* get route iso for this position */
-    for(p=pos->parent; p; p=p->parent)
-        if(++it == origin.end()) {
-            Unlock();
-            return;
-        }
-    if(it != origin.begin())
-        it--;
+wxColour RouteMapOverlay::sailingConditionColor(int level)
+{
+    switch (level) {
+    case 1:
+        return wxColor(50, 205, 50);
+    case 2:
+        return wxColor(255, 165, 0);
+    case 3:
+        return *wxRED;
+    }
+    return *wxBLACK;
+}
 
-    for(p = pos; p->parent; p = p->parent) {
-        wxDateTime ittime = (*it)->time;
-        wxPoint r;
+wxString RouteMapOverlay::sailingConditionText(int level)
+{
+    if (level == 1)
+        return _T("Good");
+    if (level == 2)
+        return _T("Bumpy");
+    if (level == 3)
+        return _T("Difficult");
+    return _T("N/A");
+}
 
-        if(time >= ittime) {
-            wxDateTime timestart = (*it)->time;
-            it++;
-            wxDateTime timeend = (*it)->time;
+// -----------------------------------------------------
 
-            wxTimeSpan span = timeend - timestart, cspan = time - timestart;
-            double d = cspan.GetSeconds().ToDouble() / span.GetSeconds().ToDouble();
 
-            if(d > 1)
-                d = 1;
+void RouteMapOverlay::RenderCourse(bool cursor_route, wrDC &dc, PlugIn_ViewPort &vp,
+        bool comfortRoute)
+{
+    Position *pos = cursor_route ? last_cursor_position : last_destination_position;
+    if(!pos)
+        return;
 
-            GetCanvasPixLL(&vp, &r,
-                           p->parent->lat + d*(p->lat - p->parent->lat),
-                           p->parent->lon + d*heading_resolve(p->lon - p->parent->lon));
+    /* ComfortDisplay Customization
+     * ------------------------------------------------
+     * To get weather data (wind, current, waves) on a
+     * position and through time, iterate over the
+     * position and in parallel on GetPlotData
+     * Thanks Sean for your help :-)
+     */
+    std::list<PlotData> plot = GetPlotData(false);
+    std::list<PlotData>::reverse_iterator itt = plot.rbegin();
+    if (itt == plot.rend()) {
+        return;
+    }
 
-        } else if(it == origin.begin())
-            GetCanvasPixLL(&vp, &r, p->parent->lat, p->parent->lon);
-        else {
-            it--;
-            continue;
-        }
+    Lock();
+    wxColor lc = sailingConditionColor(sailingConditionLevel(*itt));
+
+    /* draw lines to this route */
+    Position *p;
+    if(!dc.GetDC())
+        glBegin(GL_LINES);
+    for(p = pos; (p && p->parent) && (itt != plot.rend()); p = p->parent)
+    {
+        if (comfortRoute)
+        {
+            wxColor c = sailingConditionColor(sailingConditionLevel(*itt));
+            DrawLine(p, lc, p->parent, c, dc, vp);
+            lc = c;
+            itt++;
+        } else
+            DrawLine(p, p->parent, dc, vp);
+    }
+
+    if(!dc.GetDC())
+        glEnd();
+    Unlock();
+}
+
+
+void RouteMapOverlay::RenderBoatOnCourse(bool cursor_route, wxDateTime time, wrDC &dc,
+                                         PlugIn_ViewPort &vp)
+{
+    /* Dedicated method to render the boat circle
+     * on the weather route to be able to select the
+     * color of the maker, and avoid to generate twice
+     * (1 normally, 1 for polar changed -- to avoid)
+     */
+    Position *pos = cursor_route ? last_cursor_position : last_destination_position;
+    if(!pos)
+        return;
+    
+    std::list<PlotData> plot = GetPlotData(cursor_route);
+    
+    for(std::list<PlotData>::iterator it = plot.begin(); it != plot.end(); )  {
+        wxDateTime ittime = it->time;
         
-        dc.SetBrush( *wxTRANSPARENT_BRUSH);
+        wxDateTime timestart = ittime;
+        double plat = it->lat;
+        double plon = it->lon;
+        it++;
+        if (it == plot.end())
+            break;
+
+        wxDateTime timeend = it->time;
+        if (!(time >= timestart && time <= timeend))
+            continue;
+
+        wxTimeSpan span = timeend - timestart, cspan = time - timestart;
+        double d = cspan.GetSeconds().ToDouble() / span.GetSeconds().ToDouble();
+
+        if(d > 1)
+            // d = 1; // draw at end??
+           break; // don't draw if grib time is after end
+
+        wxPoint r;
+        GetCanvasPixLL(&vp, &r,
+                           plat + d*(it->lat - plat), plon + d*heading_resolve(it->lon - plon));
+
         dc.DrawCircle( r.x, r.y, 7 );
         break;
     }
-    Unlock();
+}
+
+void RouteMapOverlay::RenderWindBarbsOnRoute(wrDC &dc, PlugIn_ViewPort &vp)
+{
+    /* Method to render wind barbs on the route that has been generated
+     * by WeatherRouting plugin. The idead is to visualize the wind
+     * direction and strenght at any step of the trip.
+     *
+     * Customization by: Sylvain Carlioz -- with Pavel Kalian's help ;-)
+     * OpenCPN's licence
+     * March, 2018
+     */
+    
+    RouteMapConfiguration configuration = GetConfiguration();
+    
+    
+    // Create a specific viewport at position (0,0)
+    // to draw the winds barbs, and then translate it
+    PlugIn_ViewPort nvp = vp;
+    nvp.clat = configuration.StartLat, nvp.clon = configuration.StartLon;
+    nvp.pix_width = 0;
+    nvp.pix_height = 0;
+    nvp.rotation = 0;
+    nvp.skew = 0;
+    
+    // calculate wind barbs along the route by looping
+    // over [GetPlotData(false)] list which contains lat,
+    // lon, wind info for each points, only if needed.
+    std::list<PlotData> plot = GetPlotData(false);
+
+    // if no route has been calculated by WeatherRouting, 
+    // then stops the method.
+    if (plot.empty())
+        return;
+
+    for ( std::list<PlotData>::iterator it = plot.begin(); it != plot.end(); it++)
+    {
+        wxPoint p;
+        GetCanvasPixLL(&nvp, &p, it->lat, it->lon);
+        
+        double VW = it->VW;
+        double W = it->W;
+        
+        // Calculate the offset to put the head
+        // of the arrow on the route (and not the
+        // middle of the arrow) for readability.
+        int xOffset, yOffset;
+        xOffset = (int)(0.5 * 35 * sin(deg2rad(W)));
+        yOffset = (int)(0.5 * 35 * cos(deg2rad(W)));
+        
+        // Draw barbs
+        g_barbsOnRoute_LineBufferOverlay.pushWindArrowWithBarbs(
+            wind_barb_route_cache, p.x + xOffset, p.y - yOffset, VW,
+            deg2rad(W) + nvp.rotation, it->lat < 0
+        );
+    }
+    wind_barb_route_cache.Finalize();
+    
+    // Draw the wind barbs
+    wxPoint point;
+    GetCanvasPixLL(&vp, &point, configuration.StartLat, configuration.StartLon);
+    wxColour colour(170, 0, 170);
+    
+    if(dc.GetDC())
+    {
+        dc.SetPen(wxPen(colour, 2));
+    }
+    
+#ifdef ocpnUSE_GL
+    else
+    {
+        // Translate and rotate the matrix
+        // anyway, event if cached
+        glPushMatrix();
+        glTranslated(point.x, point.y, 0);
+        glRotated(vp.rotation*180/M_PI, 0, 0, 1);
+        
+        // Anti-aliasing options to render
+        // wind barbs at best quality (copy from grip_pi)
+        glEnable(GL_BLEND);
+        glEnable(GL_LINE_SMOOTH);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
+        
+        glColor3ub(colour.Red(), colour.Green(), colour.Blue());
+        glLineWidth(2);
+        glEnableClientState(GL_VERTEX_ARRAY);
+    }
+#endif
+    
+    if(dc.GetDC()) {
+        // Draw the wind barbs with a correction
+        // in all cases on position and rotation
+        LineBuffer tb;
+        tb.pushTransformedBuffer(wind_barb_route_cache, point.x, point.y, vp.rotation);
+        tb.Finalize();
+        tb.draw(dc.GetDC());
+    } else
+        wind_barb_route_cache.draw(NULL);
+
+#ifdef ocpnUSE_GL
+    if(!dc.GetDC()) {
+        glDisableClientState(GL_VERTEX_ARRAY);
+        glPopMatrix();
+    }
+#endif
 }
 
 void RouteMapOverlay::RenderWindBarbs(wrDC &dc, PlugIn_ViewPort &vp)
@@ -675,10 +938,8 @@ void RouteMapOverlay::RenderWindBarbs(wrDC &dc, PlugIn_ViewPort &vp)
     wxPoint point;
     GetCanvasPixLL(&vp, &point, configuration.StartLat, configuration.StartLon);
 
-    if(dc.GetDC()) {
+    if(dc.GetDC())
         dc.SetPen( wxPen( colour, 2 ) );
-        dc.SetBrush( *wxTRANSPARENT_BRUSH);
-    } 
 #ifdef ocpnUSE_GL
     else {
         if(!nocache) {
@@ -873,10 +1134,8 @@ void RouteMapOverlay::RenderCurrent(wrDC &dc, PlugIn_ViewPort &vp)
     wxPoint point;
     GetCanvasPixLL(&vp, &point, configuration.StartLat, configuration.StartLon);
 
-    if(dc.GetDC()) {
+    if(dc.GetDC())
         dc.SetPen( wxPen( colour, 2 ) );
-        dc.SetBrush( *wxTRANSPARENT_BRUSH);
-    } 
 #ifdef ocpnUSE_GL
     else {
         if(!nocache) {
@@ -958,6 +1217,10 @@ void RouteMapOverlay::RequestGrib(wxDateTime time)
 std::list<PlotData> &RouteMapOverlay::GetPlotData(bool cursor_route)
 {
     std::list<PlotData> &plotdata = cursor_route ? last_cursor_plotdata : last_destination_plotdata;
+    if (!cursor_route && clear_destination_plotdata ) {
+        clear_destination_plotdata  = false;
+        plotdata.clear();
+    }
     if(plotdata.empty()) {
         Position *next = cursor_route ? last_cursor_position : last_destination_position;
 
@@ -975,6 +1238,7 @@ std::list<PlotData> &RouteMapOverlay::GetPlotData(bool cursor_route)
                 Unlock();
                 return plotdata;
             }
+        it--;
 
         while(pos) {
             itp = it;
@@ -982,10 +1246,11 @@ std::list<PlotData> &RouteMapOverlay::GetPlotData(bool cursor_route)
 
             configuration.grib = (*it)->m_Grib;
             configuration.time = (*it)->time;
+            //printf("grib time %p %d\n", configuration.grib, configuration.time);
 
             PlotData data;
 
-            double dt = configuration.dt;
+            double dt = configuration.DeltaTime;
             data.time = (*it)->time;
 
             data.lat = pos->lat, data.lon = pos->lon;
@@ -1007,6 +1272,7 @@ double RouteMapOverlay::RouteInfo(enum RouteInfoType type, bool cursor_route)
     std::list<PlotData> &plotdata = GetPlotData(cursor_route);
 
     double total = 0, count = 0, lat0 = 0, lon0 = 0;
+    int comfort = 0, current_comfort = 0;
     for(std::list<PlotData>::iterator it=plotdata.begin(); it!=plotdata.end(); it++)
     {
         switch(type) {
@@ -1065,6 +1331,13 @@ double RouteMapOverlay::RouteInfo(enum RouteInfoType type, bool cursor_route)
             if(heading_resolve(it->B - it->W) > 0)
                 total++;
             break;
+        // CUSTOMIZATION
+        // Comfort on route
+        case COMFORT:
+            current_comfort = sailingConditionLevel(*it);
+            if (current_comfort > comfort)
+                comfort = current_comfort;
+            break;
         default:
             break;
         }
@@ -1083,6 +1356,8 @@ double RouteMapOverlay::RouteInfo(enum RouteInfoType type, bool cursor_route)
             total += DistGreatCircle_Plugin(lat0, lon0, configuration.EndLat, configuration.EndLon);
         }
         return total;
+    case COMFORT:
+        return comfort;
     case PERCENTAGE_UPWIND:
     case PORT_STARBOARD:
         total *= 100.0;
@@ -1132,6 +1407,8 @@ void RouteMapOverlay::Clear()
     RouteMap::Clear();
     last_cursor_position = NULL;
     last_destination_position = NULL;
+    clear_destination_plotdata = false;
+    // clear_cursor_plotdata = false;
     last_cursor_plotdata.clear();
     last_destination_plotdata.clear();
     m_UpdateOverlay = true;
@@ -1139,8 +1416,9 @@ void RouteMapOverlay::Clear()
 
 void RouteMapOverlay::UpdateCursorPosition()
 {
+    // only called in main thread, no race
     Position *last_last_cursor_position = last_cursor_position;
-    last_cursor_position = ClosestPosition(last_cursor_lat, last_cursor_lon);
+    last_cursor_position = ClosestPosition(last_cursor_lat, last_cursor_lon, &m_cursor_time);
     if(last_last_cursor_position != last_cursor_position)
         last_cursor_plotdata.clear();
 }
@@ -1168,9 +1446,9 @@ void RouteMapOverlay::UpdateDestination()
     Position *last_last_destination_position = last_destination_position;
     bool done = ReachedDestination();
     if(done) {
+        Lock();
         delete destination_position;
         destination_position = 0;
-        Lock();
         /* this doesn't happen often, so can be slow.. for each position in the last
            isochron, we try to propagate to the destination */
         IsoChronList::iterator iit = origin.end();
@@ -1209,8 +1487,11 @@ void RouteMapOverlay::UpdateDestination()
         m_EndTime = wxDateTime(); // invalid
     }
 
-    if(last_last_destination_position != last_destination_position)
-        last_destination_plotdata.clear();
+    if(last_last_destination_position != last_destination_position) {
+        // we can't clear because we are inside a worker thread
+        // and there's a race with GetPlotData
+        clear_destination_plotdata = true;
+    }
 
     m_bUpdated = true;
     m_UpdateOverlay = true;

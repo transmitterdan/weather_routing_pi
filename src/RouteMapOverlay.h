@@ -48,7 +48,7 @@ class RouteMapOverlay : public RouteMap
 public:
     enum RouteInfoType {DISTANCE, AVGSPEED, MAXSPEED, AVGSPEEDGROUND, MAXSPEEDGROUND,
                         AVGWIND, MAXWIND, MAXWINDGUST, AVGCURRENT, MAXCURRENT, AVGSWELL, MAXSWELL,
-                        PERCENTAGE_UPWIND, PORT_STARBOARD, TACKS};
+                        PERCENTAGE_UPWIND, PORT_STARBOARD, TACKS, COMFORT};
 
     RouteMapOverlay();
     ~RouteMapOverlay();
@@ -58,9 +58,20 @@ public:
                         wrDC &dc, PlugIn_ViewPort &vp);
     void Render(wxDateTime time, SettingsDialog &settingsdialog,
                 wrDC &dc, PlugIn_ViewPort &vp, bool justendroute);
-    void RenderCourse(Position *pos, wxDateTime time, bool MarkAtPolarChange,
-                      wrDC &dc, PlugIn_ViewPort &vp);
+
+    void RenderPolarChangeMarks(bool cursor_route,  wrDC &dc, PlugIn_ViewPort &vp);
+    void RenderBoatOnCourse(bool cursor_route,  wxDateTime time, wrDC &dc, PlugIn_ViewPort &vp);
+    
+    // Customization ComfortDisplay
+    void RenderCourse(bool cursor_route, wrDC &dc, PlugIn_ViewPort &vp, bool comfortRoute = false);
+    int sailingConditionLevel(const PlotData &plot) const;
+    static wxColour sailingConditionColor(int level);
+    static wxString sailingConditionText(int level);
+    
+    // Customization WindBarbsOnRoute
+    void RenderWindBarbsOnRoute(wrDC &dc, PlugIn_ViewPort &vp);
     void RenderWindBarbs(wrDC &dc, PlugIn_ViewPort &vp);
+
     void RenderCurrent(wrDC &dc, PlugIn_ViewPort &vp);
 
     void GetLLBounds(double &latmin, double &latmax, double &lonmin, double &lonmax);
@@ -86,7 +97,8 @@ public:
     void DeleteThread(); // like Stop(), but waits until the thread is deleted
 
     Position *GetLastCursorPosition() { return last_cursor_position; }
-    
+    wxDateTime GetLastCursorTime() { return m_cursor_time; }
+
     bool m_UpdateOverlay;
     bool m_bEndRouteVisible;
 
@@ -105,17 +117,27 @@ private:
 
     double last_cursor_lat, last_cursor_lon;
     Position *last_cursor_position, *destination_position, *last_destination_position;
+    wxDateTime m_cursor_time;
     wxDateTime m_EndTime;
     bool m_bUpdated;
 
     int m_overlaylist, m_overlaylist_projection;
 
-    std::list<PlotData> last_destination_plotdata, last_cursor_plotdata;
+    bool clear_destination_plotdata; // should be volatile
+    std::list<PlotData> last_destination_plotdata;
+
+    std::list<PlotData> last_cursor_plotdata;
 
     LineBuffer wind_barb_cache;
     double wind_barb_cache_scale;
     size_t wind_barb_cache_origin_size;
     int wind_barb_cache_projection;
+    
+    // Customization WindBarbsOnRoute
+    LineBuffer wind_barb_route_cache;
+    
+    // Customization Sailing Comfort
+    int m_sailingComfort;
 
     LineBuffer current_cache;
     double current_cache_scale;

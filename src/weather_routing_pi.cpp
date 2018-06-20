@@ -42,7 +42,7 @@
 
 //Define minimum and maximum versions of the climatology plugin supported
 #define CLIMATOLOGY_MAX_MAJOR 1
-#define CLIMATOLOGY_MAX_MINOR 3
+#define CLIMATOLOGY_MAX_MINOR 4
 #define CLIMATOLOGY_MIN_MAJOR 0
 #define CLIMATOLOGY_MIN_MINOR 10
 
@@ -88,7 +88,7 @@ weather_routing_pi::weather_routing_pi(void *ppimgr)
 {
       // Create the PlugIn icons
       initialize_images();
-
+      b_in_boundary_reply = false;
       m_tCursorLatLon.Connect(wxEVT_TIMER, wxTimerEventHandler
                               ( weather_routing_pi::OnCursorLatLonTimer ), NULL, this);
 }
@@ -140,6 +140,7 @@ int weather_routing_pi::Init(void)
 
 bool weather_routing_pi::DeInit(void)
 {
+    m_tCursorLatLon.Stop();
     if(m_pWeather_Routing)
         m_pWeather_Routing->Close();
     WeatherRouting *wr = m_pWeather_Routing;
@@ -351,8 +352,42 @@ void weather_routing_pi::SetPluginMessage(wxString &message_id, wxString &messag
                 wxString sptr = root[_T("OD_FindClosestBoundaryLineCrossing")].AsString();
                 sscanf(sptr.To8BitData().data(), "%p", &RouteMap::ODFindClosestBoundaryLineCrossing);
             }
+            else if (root[wxS("Msg")].AsString() == wxS("FindPointInAnyBoundary") ) {
+              if (root[wxS("MsgId")].AsString() == wxS("exist")) {
+                 b_in_boundary_reply = root[wxS("Found")].AsBool() == true;
+                 // if (b_in_boundary_reply) printf("collision with %s\n", (const char*)root[wxS("GUID")].AsString().mb_str());
+              }
+            }
         }
     }
+}
+
+
+// true if lat lon in any active boundary, aka we can't exit it.
+// use JSON msg rather than binary it's not time sensitive.
+bool weather_routing_pi::InBoundary(double lat, double lon)
+{
+    wxJSONValue jMsg;
+    wxJSONWriter writer;
+    wxString    MsgString;
+
+    jMsg[wxS("Source")] = wxS("WEATHER_ROUTING_PI");
+    jMsg[wxT("Type")] = wxT("Request");
+
+    jMsg[wxT("Msg")] = wxS("FindPointInAnyBoundary");
+    jMsg[wxT("MsgId")] = wxS("exist");
+
+    jMsg[wxS("lat")] = lat;
+    jMsg[wxS("lon")] = lon;
+
+    jMsg[wxS("BoundaryState")] = wxT("Active");
+    jMsg[wxS("BoundaryType")] = wxT("Exclusion");
+
+    writer.Write( jMsg, MsgString );
+    b_in_boundary_reply = false;
+    SendPluginMessage( wxS("OCPN_DRAW_PI"), MsgString );
+
+    return b_in_boundary_reply;
 }
 
 void weather_routing_pi::SetPositionFixEx(PlugIn_Position_Fix_Ex &pfix)
@@ -427,6 +462,9 @@ bool weather_routing_pi::RenderGLOverlay(wxGLContext *pcontext, PlugIn_ViewPort 
 
 void weather_routing_pi::OnCursorLatLonTimer( wxTimerEvent & )
 {
+    if (m_pWeather_Routing == 0)
+        return;
+
     std::list<RouteMapOverlay *>routemapoverlays = m_pWeather_Routing->CurrentRouteMaps();
     bool refresh = false;
     for(std::list<RouteMapOverlay *>::iterator it = routemapoverlays.begin();

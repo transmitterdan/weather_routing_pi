@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version Dec 20 2017)
+// C++ code generated with wxFormBuilder (version Mar 29 2018)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -11,23 +11,23 @@
 #include <wx/artprov.h>
 #include <wx/xrc/xmlres.h>
 #include <wx/intl.h>
-#include <wx/listctrl.h>
+#include <wx/string.h>
+#include <wx/bitmap.h>
+#include <wx/image.h>
+#include <wx/icon.h>
+#include <wx/menu.h>
 #include <wx/gdicmn.h>
 #include <wx/font.h>
 #include <wx/colour.h>
 #include <wx/settings.h>
-#include <wx/string.h>
+#include <wx/frame.h>
+#include <wx/listctrl.h>
 #include <wx/sizer.h>
 #include <wx/statbox.h>
 #include <wx/panel.h>
 #include <wx/button.h>
 #include <wx/gauge.h>
 #include <wx/splitter.h>
-#include <wx/bitmap.h>
-#include <wx/image.h>
-#include <wx/icon.h>
-#include <wx/menu.h>
-#include <wx/frame.h>
 #include <wx/stattext.h>
 #include <wx/clrpicker.h>
 #include <wx/spinctrl.h>
@@ -37,6 +37,7 @@
 #include <wx/combobox.h>
 #include <wx/datectrl.h>
 #include <wx/dateevt.h>
+#include <wx/timectrl.h>
 #include <wx/textctrl.h>
 #include <wx/choice.h>
 #include <wx/valtext.h>
@@ -63,13 +64,6 @@ class WeatherRoutingBase : public wxFrame
 	private:
 	
 	protected:
-		wxSplitterWindow* m_splitter1;
-		wxPanel* m_panel11;
-		wxListCtrl* m_lPositions;
-		wxPanel* m_panel12;
-		wxListCtrl* m_lWeatherRoutes;
-		wxButton* m_bCompute;
-		wxButton* m_bExport;
 		wxMenuBar* m_menubar3;
 		wxMenu* m_mFile;
 		wxMenu* m_mPosition;
@@ -88,14 +82,7 @@ class WeatherRoutingBase : public wxFrame
 		
 		// Virtual event handlers, overide them in your derived class
 		virtual void OnClose( wxCloseEvent& event ) { event.Skip(); }
-		virtual void OnPositionKeyDown( wxListEvent& event ) { event.Skip(); }
-		virtual void OnEditConfigurationClick( wxMouseEvent& event ) { event.Skip(); }
-		virtual void OnWeatherRoutesListLeftDown( wxMouseEvent& event ) { event.Skip(); }
-		virtual void OnWeatherRouteSort( wxListEvent& event ) { event.Skip(); }
-		virtual void OnWeatherRouteSelected( wxListEvent& event ) { event.Skip(); }
-		virtual void OnWeatherRouteKeyDown( wxListEvent& event ) { event.Skip(); }
-		virtual void OnCompute( wxCommandEvent& event ) { event.Skip(); }
-		virtual void OnExport( wxCommandEvent& event ) { event.Skip(); }
+		virtual void OnSize( wxSizeEvent& event ) { event.Skip(); }
 		virtual void OnOpen( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnSave( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnClose( wxCommandEvent& event ) { event.Skip(); }
@@ -109,9 +96,11 @@ class WeatherRoutingBase : public wxFrame
 		virtual void OnGoTo( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnDelete( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnDeleteAll( wxCommandEvent& event ) { event.Skip(); }
+		virtual void OnCompute( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnComputeAll( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnStop( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnResetAll( wxCommandEvent& event ) { event.Skip(); }
+		virtual void OnExport( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnExportAll( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnFilter( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnSettings( wxCommandEvent& event ) { event.Skip(); }
@@ -125,12 +114,47 @@ class WeatherRoutingBase : public wxFrame
 		
 	
 	public:
-		wxGauge* m_gProgress;
 		wxMenuItem* m_mDeleteAll;
 		
 		WeatherRoutingBase( wxWindow* parent, wxWindowID id = wxID_ANY, const wxString& title = _("Weather Routing"), const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxSize( -1,-1 ), long style = wxCAPTION|wxCLOSE_BOX|wxFRAME_FLOAT_ON_PARENT|wxFRAME_NO_TASKBAR|wxRESIZE_BORDER|wxSYSTEM_MENU|wxTAB_TRAVERSAL );
 		
 		~WeatherRoutingBase();
+	
+};
+
+///////////////////////////////////////////////////////////////////////////////
+/// Class WeatherRoutingPanel
+///////////////////////////////////////////////////////////////////////////////
+class WeatherRoutingPanel : public wxPanel 
+{
+	private:
+	
+	protected:
+		wxPanel* m_panel11;
+		wxPanel* m_panel12;
+		
+		// Virtual event handlers, overide them in your derived class
+		virtual void OnEditPositionClick( wxMouseEvent& event ) { event.Skip(); }
+		virtual void OnPositionKeyDown( wxListEvent& event ) { event.Skip(); }
+		virtual void OnEditConfigurationClick( wxMouseEvent& event ) { event.Skip(); }
+		virtual void OnWeatherRoutesListLeftDown( wxMouseEvent& event ) { event.Skip(); }
+		virtual void OnWeatherRouteSort( wxListEvent& event ) { event.Skip(); }
+		virtual void OnWeatherRouteSelected( wxListEvent& event ) { event.Skip(); }
+		virtual void OnWeatherRouteKeyDown( wxListEvent& event ) { event.Skip(); }
+		virtual void OnCompute( wxCommandEvent& event ) { event.Skip(); }
+		virtual void OnExport( wxCommandEvent& event ) { event.Skip(); }
+		
+	
+	public:
+		wxSplitterWindow* m_splitter1;
+		wxListCtrl* m_lPositions;
+		wxListCtrl* m_lWeatherRoutes;
+		wxButton* m_bCompute;
+		wxButton* m_bExport;
+		wxGauge* m_gProgress;
+		
+		WeatherRoutingPanel( wxWindow* parent, wxWindowID id = wxID_ANY, const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxSize( 500,300 ), long style = wxTAB_TRAVERSAL ); 
+		~WeatherRoutingPanel();
 	
 };
 
@@ -166,10 +190,13 @@ class SettingsDialogBase : public wxDialog
 		wxSpinCtrl* m_sRouteThickness;
 		wxSpinCtrl* m_sIsoChronThickness;
 		wxSpinCtrl* m_sAlternateRouteThickness;
+		wxCheckBox* m_cbDisplayCursorRoute;
 		wxCheckBox* m_cbAlternatesForAll;
 		wxCheckBox* m_cbMarkAtPolarChange;
-		wxCheckBox* m_cbDisplayWindBarbs;
 		wxCheckBox* m_cbDisplayCurrent;
+		wxCheckBox* m_cbDisplayWindBarbs;
+		wxCheckBox* m_cbDisplayWindBarbsOnRoute;
+		wxCheckBox* m_cbDisplayComfort;
 		wxSpinCtrl* m_sConcurrentThreads;
 		wxCheckListBox* m_cblFields;
 		wxCheckBox* m_cbUseLocalTime;
@@ -193,9 +220,7 @@ class ConfigurationDialogBase : public wxDialog
 		wxStaticText* m_staticText28;
 		wxButton* m_bGribTime;
 		wxStaticText* m_staticText30;
-		wxSpinCtrl* m_sStartHour;
-		wxStaticText* m_staticText134;
-		wxTextCtrl* m_tStartMinute;
+		wxTimePickerCtrl* m_tpTime;
 		wxButton* m_bCurrentTime;
 		wxTextCtrl* m_tBoat;
 		wxButton* m_bBoatFilename;
@@ -251,6 +276,9 @@ class ConfigurationDialogBase : public wxDialog
 		wxStaticText* m_staticText24;
 		wxSpinCtrl* m_sTackingTime;
 		wxStaticText* m_staticText121;
+		wxStaticText* m_staticText241;
+		wxSpinCtrl* m_sSafetyMarginLand;
+		wxStaticText* m_staticText1211;
 		wxStaticText* m_staticText113;
 		wxStaticText* m_staticText115;
 		wxStaticText* m_staticText117;
@@ -261,11 +289,12 @@ class ConfigurationDialogBase : public wxDialog
 		virtual void OnUpdate( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnUpdateDate( wxDateEvent& event ) { event.Skip(); }
 		virtual void OnGribTime( wxCommandEvent& event ) { event.Skip(); }
-		virtual void EnableSpin( wxMouseEvent& event ) { event.Skip(); }
-		virtual void OnUpdateSpin( wxSpinEvent& event ) { event.Skip(); }
+		virtual void OnUpdateTime( wxDateEvent& event ) { event.Skip(); }
 		virtual void OnCurrentTime( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnBoatFilename( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnEditBoat( wxCommandEvent& event ) { event.Skip(); }
+		virtual void EnableSpin( wxMouseEvent& event ) { event.Skip(); }
+		virtual void OnUpdateSpin( wxSpinEvent& event ) { event.Skip(); }
 		virtual void OnClose( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnAvoidCyclones( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnResetAdvanced( wxCommandEvent& event ) { event.Skip(); }
@@ -299,13 +328,10 @@ class PlotDialogBase : public wxDialog
 		wxSlider* m_sPosition;
 		wxStaticText* m_staticText139;
 		wxSlider* m_sScale;
-		wxStaticText* m_staticText140;
 		wxChoice* m_cVariable1;
 		wxStaticText* m_stMousePosition1;
-		wxStaticText* m_staticText1401;
 		wxChoice* m_cVariable2;
 		wxStaticText* m_stMousePosition2;
-		wxStaticText* m_staticText14011;
 		wxChoice* m_cVariable3;
 		wxStaticText* m_stMousePosition3;
 		wxRadioButton* m_rbCurrentRoute;
@@ -316,6 +342,7 @@ class PlotDialogBase : public wxDialog
 		virtual void OnMouseEventsPlot( wxMouseEvent& event ) { event.Skip(); }
 		virtual void OnPaintPlot( wxPaintEvent& event ) { event.Skip(); }
 		virtual void OnSizePlot( wxSizeEvent& event ) { event.Skip(); }
+		virtual void OnUpdateUI( wxUpdateUIEvent& event ) { event.Skip(); }
 		virtual void OnUpdatePlot( wxScrollEvent& event ) { event.Skip(); }
 		virtual void OnUpdatePlotVariable( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnUpdateRoute( wxCommandEvent& event ) { event.Skip(); }
@@ -388,7 +415,6 @@ class BoatDialogBase : public wxDialog
 		wxChoice* m_cPlotType;
 		wxChoice* m_cPlotVariable;
 		wxCheckBox* m_cbFullPlot;
-		wxCheckBox* m_cbOrientation;
 		wxPanel* m_panel21;
 		wxListCtrl* m_lPolars;
 		wxButton* m_bUp;
@@ -409,7 +435,6 @@ class BoatDialogBase : public wxDialog
 		virtual void OnOverlapPercentage( wxSpinEvent& event ) { event.Skip(); }
 		virtual void OnVMGWindSpeed( wxSpinEvent& event ) { event.Skip(); }
 		virtual void OnUpdatePlot( wxCommandEvent& event ) { event.Skip(); }
-		virtual void OnOrientation( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnPolarSelected( wxListEvent& event ) { event.Skip(); }
 		virtual void OnUpPolar( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnDownPolar( wxCommandEvent& event ) { event.Skip(); }
@@ -608,6 +633,7 @@ class CursorPositionDialog : public wxDialog
 	private:
 	
 	protected:
+		wxStaticText* m_staticText134;
 		wxStaticText* m_staticText128;
 		wxStaticText* m_staticText124;
 		wxStaticText* m_staticText130;
@@ -617,6 +643,7 @@ class CursorPositionDialog : public wxDialog
 		wxButton* m_sdbSizer5OK;
 	
 	public:
+		wxStaticText* m_stTime;
 		wxStaticText* m_stPosition;
 		wxStaticText* m_stPolar;
 		wxStaticText* m_stSailChanges;
@@ -670,6 +697,7 @@ class EditPolarDialogBase : public wxDialog
 		wxNotebook* m_notebook6;
 		wxPanel* m_panel19;
 		wxGrid* m_gPolar;
+		wxStaticText* m_staticText1351;
 		wxPanel* m_panel20;
 		wxTextCtrl* m_tTrueWindAngle;
 		wxListBox* m_lTrueWindAngles;

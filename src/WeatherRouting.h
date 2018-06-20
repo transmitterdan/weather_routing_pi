@@ -29,6 +29,7 @@
 
 #include <wx/treectrl.h>
 #include <wx/fileconf.h>
+#include <wx/collpane.h>
 
 #include "WeatherRoutingUI.h"
 #include "ConfigurationDialog.h"
@@ -55,19 +56,25 @@ public:
         AvgSpeed, MaxSpeed, AvgSpeedGround, MaxSpeedGround,
         AvgWind, MaxWind, MaxWindGust,
         AvgCurrent, MaxCurrent, AvgSwell, MaxSwell, UpwindPercentage, PortStarboard,
-        Tacks, State;
+        Tacks, State, Comfort;
     RouteMapOverlay *routemapoverlay;
 };
 
 class WeatherRouting : public WeatherRoutingBase
 {
+private:
+    bool m_disable_colpane;
+    wxCollapsiblePane *m_colpane;
+    wxWindow *m_colpaneWindow;
+    WeatherRoutingPanel *m_panel;
+    
 public:
     enum {POSITION_NAME=0, POSITION_LAT, POSITION_LON};
 
     enum {VISIBLE=0, BOAT, START, STARTTIME, END, ENDTIME, TIME, DISTANCE,
           AVGSPEED, MAXSPEED, AVGSPEEDGROUND, MAXSPEEDGROUND,
           AVGWIND, MAXWIND, MAXWINDGUST, AVGCURRENT, MAXCURRENT, AVGSWELL, MAXSWELL,
-          UPWIND_PERCENTAGE, PORT_STARBOARD, TACKS, STATE, NUM_COLS};
+          UPWIND_PERCENTAGE, PORT_STARBOARD, TACKS, COMFORT, STATE, NUM_COLS};
     long columns[NUM_COLS];
     static const wxString column_names[NUM_COLS];
     int sashpos;
@@ -102,7 +109,7 @@ public:
     void UpdateDisplaySettings();
 
     void AddPosition(double lat, double lon);
-    void AddPosition(double lat, double lon, wxString name);
+    void AddPosition(double lat, double lon, wxString name, wxString GUID = wxEmptyString);
 
     void CursorRouteChanged();
     void UpdateColumns();
@@ -112,7 +119,8 @@ public:
     SettingsDialog m_SettingsDialog;
 
 private:
-
+    void CopyDataFiles(wxString from, wxString to);
+    void OnCollPaneChanged( wxCollapsiblePaneEvent& event );
     void OnNewPosition( wxCommandEvent& event );
     void OnUpdateBoat( wxCommandEvent& event );
     void OnDeletePosition( wxCommandEvent& event );
@@ -123,6 +131,7 @@ private:
     void OnOpen( wxCommandEvent& event );
     void OnSave( wxCommandEvent& event );
     void OnClose( wxCommandEvent& event );
+    void OnSize( wxSizeEvent& event );
     void OnNew( wxCommandEvent& event );
     void OnEditConfigurationClick( wxMouseEvent& event ) { OnEditConfiguration(); }
     void OnWeatherRouteSort( wxListEvent& event );
@@ -165,7 +174,7 @@ private:
     void UpdateConfigurations();
     void UpdateDialogs();
 
-    void AddConfiguration(RouteMapConfiguration configuration);
+    void AddConfiguration(const RouteMapConfiguration &configuration);
     void UpdateRouteMap(RouteMapOverlay *routemapoverlay);
     void UpdateItem(long index, bool stateonly=false);
 
@@ -201,6 +210,8 @@ private:
     weather_routing_pi &m_weather_routing_pi;
 
     wxFileName m_FileName;
+    
+    wxSize m_size;
 };
 
 #endif

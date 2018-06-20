@@ -41,6 +41,8 @@
 #include "WeatherRouting.h"
 #include "icons.h"
 
+#include <algorithm>
+
 ConfigurationDialog::ConfigurationDialog(WeatherRouting &weatherrouting)
 #ifndef __WXOSX__
     : ConfigurationDialogBase(&weatherrouting),
@@ -126,16 +128,41 @@ void ConfigurationDialog::OnBoatFilename( wxCommandEvent& event )
         } \
     } \
     CONTROL->SETTER(allsame ? value : NULLVALUE); \
+    wxSize s(CONTROL->GetSize()); \
+    if(allsame) \
+        CONTROL->SetForegroundColour(wxColour(0, 0, 0));        \
+    else \
+        CONTROL->SetForegroundColour(wxColour(180, 180, 180)); \
+    CONTROL->Fit(); \
+    CONTROL->SetSize(s); \
     } while (0)
 
 #define SET_CONTROL(FIELD, CONTROL, SETTER, TYPE, NULLVALUE) \
     SET_CONTROL_VALUE((*it).FIELD, CONTROL, SETTER, TYPE, NULLVALUE)
 
-#define SET_CHOICE(FIELD) SET_CONTROL(FIELD, m_c##FIELD, SetValue, wxString, _T(""))
+#define SET_CHOICE_VALUE(FIELD, VALUE)                \
+    do { \
+        bool allsame = true;                            \
+        std::list<RouteMapConfiguration>::iterator it = configurations.begin(); \
+        wxString value = VALUE; \
+        for(it++; it != configurations.end(); it++) {                             \
+            if(value != VALUE) {                                       \
+                allsame = false; \
+                break; \
+            } \
+        } \
+        if(allsame) \
+            m_c##FIELD->SetValue(value); \
+        else { \
+            if(m_c##FIELD->GetString(m_c##FIELD->GetCount() - 1) != wxEmptyString) \
+                m_c##FIELD->Append(wxEmptyString);                      \
+            m_c##FIELD->SetValue(wxEmptyString); \
+        } \
+    } while (0)
+#define SET_CHOICE(FIELD) SET_CHOICE_VALUE(FIELD, (*it).FIELD)
 
 #define SET_SPIN_VALUE(FIELD, VALUE)                                          \
-    m_s##FIELD->Enable(); \
-    SET_CONTROL_VALUE(VALUE, m_s##FIELD, SetValue, int, (m_s##FIELD->Disable(), value))
+    SET_CONTROL_VALUE(VALUE, m_s##FIELD, SetValue, int, value)
 
 #define SET_SPIN(FIELD) \
     SET_SPIN_VALUE(FIELD, (*it).FIELD)
@@ -143,6 +170,8 @@ void ConfigurationDialog::OnBoatFilename( wxCommandEvent& event )
 void ConfigurationDialog::SetConfigurations(std::list<RouteMapConfiguration> configurations)
 {
     m_bBlockUpdate = true;
+    
+    m_edited_controls.clear();
 
     SET_CHOICE(Start);
 
@@ -150,14 +179,15 @@ void ConfigurationDialog::SetConfigurations(std::list<RouteMapConfiguration> con
 #define STARTTIME (ult ? it->StartTime.FromUTC() : it->StartTime)
 
     SET_CONTROL_VALUE(STARTTIME.GetDateOnly(), m_dpStartDate, SetValue, wxDateTime, wxDateTime());
-    SET_SPIN_VALUE(StartHour, STARTTIME.GetHour());
-    SET_CONTROL_VALUE(wxString::Format(_T("%.2f"), (double)STARTTIME.GetMinute() + STARTTIME.GetSecond()/60.0),
-                m_tStartMinute, SetValue, wxString, _T(""));
+    SET_CONTROL_VALUE(STARTTIME, m_tpTime, SetValue, wxDateTime, wxDateTime());
+    
+    m_bCurrentTime->Enable(m_tpTime->IsEnabled() && m_dpStartDate->IsEnabled());
+    m_bGribTime->Enable(m_tpTime->IsEnabled() && m_dpStartDate->IsEnabled());
 
-    SET_SPIN_VALUE(TimeStepHours, (int)((*it).dt / 3600));
-    SET_SPIN_VALUE(TimeStepMinutes, ((int)(*it).dt / 60) % 60);
-    SET_SPIN_VALUE(TimeStepSeconds, (int)(*it).dt%60);
-
+    SET_SPIN_VALUE(TimeStepHours, (int)((*it).DeltaTime / 3600));
+    SET_SPIN_VALUE(TimeStepMinutes, ((int)(*it).DeltaTime / 60) % 60);
+    SET_SPIN_VALUE(TimeStepSeconds, (int)(*it).DeltaTime%60);
+    
     SET_CONTROL(boatFileName, m_tBoat, SetValue, wxString, _T(""));
     long l = m_tBoat->GetValue().Length();
     m_tBoat->SetSelection(l, l);
@@ -168,8 +198,8 @@ void ConfigurationDialog::SetConfigurations(std::list<RouteMapConfiguration> con
     SET_SPIN(ToDegree);
     SET_CONTROL_VALUE(wxString::Format(_T("%f"), (*it).ByDegrees), m_tByDegrees, SetValue, wxString, _T(""));
 
-    SET_CONTROL_VALUE(((*it).Integrator == RouteMapConfiguration::RUNGE_KUTTA ?
-                       _T("Runge Kutta") : _T("Newton")), m_cIntegrator, SetValue, wxString, _T(""));
+    SET_CHOICE_VALUE(Integrator, ((*it).Integrator == RouteMapConfiguration::RUNGE_KUTTA ?
+                                  _T("Runge Kutta") : _T("Newton")));
 
     SET_SPIN(MaxDivertedCourse);
     SET_SPIN(MaxCourseAngle);
@@ -185,6 +215,7 @@ void ConfigurationDialog::SetConfigurations(std::list<RouteMapConfiguration> con
     SET_CHECKBOX(AvoidCycloneTracks);
     SET_SPIN(CycloneMonths);
     SET_SPIN(CycloneDays);
+    SET_SPIN(SafetyMarginLand);
 
     SET_CHECKBOX(DetectLand);
     SET_CHECKBOX(DetectBoundary);
@@ -235,22 +266,28 @@ void ConfigurationDialog::SetBoatFilename(wxString path)
 void ConfigurationDialog::OnResetAdvanced( wxCommandEvent& event )
 {
     m_bBlockUpdate = true;
+
+    // constraints
     m_sMaxLatitude->SetValue(90);
-    m_sTackingTime->SetValue(0);
     m_sWindVSCurrent->SetValue(0);
     m_sMaxCourseAngle->SetValue(180);
     m_sMaxSearchAngle->SetValue(120);
     m_cbAvoidCycloneTracks->SetValue(false);
+    // XXX missing 2
+
+    // Options
     m_cbInvertedRegions->SetValue(false);
     m_cbAnchoring->SetValue(false);
     m_cIntegrator->SetSelection(0);
     m_sWindStrength->SetValue(100);
     m_sTackingTime->SetValue(0);
+    m_sSafetyMarginLand->SetValue(0.);
+
     m_sFromDegree->SetValue(0);
     m_sToDegree->SetValue(180);
     m_tByDegrees->SetValue(_T("5"));
-    m_bBlockUpdate = false;
 
+    m_bBlockUpdate = false;
     Update();
 }
 
@@ -261,9 +298,9 @@ void ConfigurationDialog::SetStartDateTime(wxDateTime datetime)
             datetime = datetime.FromUTC();
 
         m_dpStartDate->SetValue(datetime);
-        m_sStartHour->SetValue(datetime.GetHour());
-        m_tStartMinute->SetValue(wxString::Format(_T("%.3f"), datetime.GetMinute()
-                                                  +datetime.GetSecond() / 60.0));        
+        m_tpTime->SetValue(datetime);
+        m_edited_controls.push_back(m_tpTime);
+        m_edited_controls.push_back(m_dpStartDate);
     } else {
         wxMessageDialog mdlg(this, _("Invalid Date Time."),
                              wxString(_("Weather Routing"), wxOK | wxICON_WARNING));
@@ -280,12 +317,18 @@ void ConfigurationDialog::SetStartDateTime(wxDateTime datetime)
            } while(0)
 
 #define GET_SPIN(FIELD) \
-    if(m_s##FIELD->IsEnabled())                                      \
-        configuration.FIELD = m_s##FIELD->GetValue()
+    if(std::find(m_edited_controls.begin(), m_edited_controls.end(), (wxObject*)m_s##FIELD) != m_edited_controls.end()) {                                     \
+        configuration.FIELD = m_s##FIELD->GetValue(); \
+        m_s##FIELD->SetForegroundColour(wxColour(0, 0, 0));  \
+    }
 
 #define GET_CHOICE(FIELD) \
-    if(!m_c##FIELD->GetValue().empty()) \
-        configuration.FIELD = m_c##FIELD->GetValue();
+    if(std::find(m_edited_controls.begin(), m_edited_controls.end(), (wxObject*)m_c##FIELD) != m_edited_controls.end()) \
+        if(m_c##FIELD->GetValue() != wxEmptyString) { \
+            configuration.FIELD = m_c##FIELD->GetValue(); \
+            if(m_c##FIELD->GetString(m_c##FIELD->GetCount() - 1) == wxEmptyString) \
+                m_c##FIELD->Delete(m_c##FIELD->GetCount() - 1); \
+        }
 
 void ConfigurationDialog::Update()
 {
@@ -303,36 +346,57 @@ void ConfigurationDialog::Update()
         GET_CHOICE(Start);
         GET_CHOICE(End);
 
-        int hour = configuration.StartTime.GetHour();
-        double minute = configuration.StartTime.GetMinute() + configuration.StartTime.GetSecond()/60.0;
-        if(m_dpStartDate->GetValue().IsValid())
-            configuration.StartTime = m_dpStartDate->GetValue();
-
-        if(m_sStartHour->IsEnabled())
-            hour = m_sStartHour->GetValue();
-        configuration.StartTime.SetHour(hour);
-
-        if(m_tStartMinute->IsEnabled() &&
-           m_tStartMinute->GetValue().ToDouble(&minute)) {
-            if(minute < 0)
-                minute = 0;
-            else if(minute >= 60)
-                minute = 59.9;
+        if(std::find(m_edited_controls.begin(), m_edited_controls.end(), (wxObject*)m_dpStartDate) != m_edited_controls.end()) {
+            if(!m_dpStartDate->GetValue().IsValid())
+                continue;
+            // We must preserve the time in case only date but not time, is being changed by the user...
+            // configuration.StartTime is UTC, m_dpStartDate Local or UTC so adjust  
+            wxDateTime time = configuration.StartTime;
+            if(m_WeatherRouting.m_SettingsDialog.m_cbUseLocalTime->GetValue())
+                time = time.FromUTC();
+            
+            wxDateTime date = m_dpStartDate->GetValue();
+            // ... and add it afterwards
+            date.SetHour(time.GetHour());
+            date.SetMinute(time.GetMinute());
+            date.SetSecond(time.GetSecond());
+            
+            if(m_WeatherRouting.m_SettingsDialog.m_cbUseLocalTime->GetValue())
+                date = date.ToUTC();
+            
+            configuration.StartTime = date;
+            m_dpStartDate->SetForegroundColour(wxColour(0, 0, 0));
         }
 
-        configuration.StartTime.SetMinute((int)minute);
-        configuration.StartTime.SetSecond((int)(60*minute)%60);
+        if(std::find(m_edited_controls.begin(), m_edited_controls.end(), (wxObject*)m_tpTime) != m_edited_controls.end()) {
+            // must use correct data on UTC conversion to preserve Daylight Savings Time changes across dates
+            wxDateTime time = configuration.StartTime;
+            if(m_WeatherRouting.m_SettingsDialog.m_cbUseLocalTime->GetValue())
+                time = time.FromUTC();
 
-        if(m_WeatherRouting.m_SettingsDialog.m_cbUseLocalTime->GetValue())
-            configuration.StartTime = configuration.StartTime.ToUTC();
+            time.SetHour(m_tpTime->GetValue().GetHour());
+            time.SetMinute(m_tpTime->GetValue().GetMinute());
+            time.SetSecond(m_tpTime->GetValue().GetSecond());
 
-        if(!m_tBoat->GetValue().empty())
+            if(m_WeatherRouting.m_SettingsDialog.m_cbUseLocalTime->GetValue())
+                time = time.ToUTC();
+
+            configuration.StartTime = time;
+            m_tpTime->SetForegroundColour(wxColour(0, 0, 0));
+        }
+
+        if(!m_tBoat->GetValue().empty()) {
             configuration.boatFileName = m_tBoat->GetValue();
+            m_tBoat->SetForegroundColour(wxColour(0, 0, 0));
+        }
 
-        if(m_sTimeStepHours->IsEnabled()) {
-            configuration.dt = 60*(60*m_sTimeStepHours->GetValue()
+        if(std::find(m_edited_controls.begin(), m_edited_controls.end(), (wxObject*)m_sTimeStepHours) != m_edited_controls.end() || std::find(m_edited_controls.begin(), m_edited_controls.end(), (wxObject*)m_sTimeStepMinutes) != m_edited_controls.end() || std::find(m_edited_controls.begin(), m_edited_controls.end(), (wxObject*)m_sTimeStepSeconds) != m_edited_controls.end()) {
+            configuration.DeltaTime = 60*(60*m_sTimeStepHours->GetValue()
                                    + m_sTimeStepMinutes->GetValue())
                 + m_sTimeStepSeconds->GetValue();
+            m_sTimeStepHours->SetForegroundColour(wxColour(0, 0, 0));
+            m_sTimeStepMinutes->SetForegroundColour(wxColour(0, 0, 0));
+            m_sTimeStepSeconds->SetForegroundColour(wxColour(0, 0, 0));
         }
 
         if(m_cIntegrator->GetValue() == _T("Newton"))
@@ -354,6 +418,7 @@ void ConfigurationDialog::Update()
         GET_CHECKBOX(AvoidCycloneTracks);
         GET_SPIN(CycloneMonths);
         GET_SPIN(CycloneDays);
+        GET_SPIN(SafetyMarginLand);
 
         GET_CHECKBOX(DetectLand);
         GET_CHECKBOX(DetectBoundary);
